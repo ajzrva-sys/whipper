@@ -28,7 +28,10 @@ from whipper.command.basecommand import BaseCommand
 from whipper.common import (
     accurip, config, drive, program, task
 )
-from whipper.common.common import validate_template
+from whipper.common.common import (
+    align_track_path,
+    validate_template,
+)
 from whipper.program import cdrdao, cdparanoia, utils
 from whipper.result import result
 
@@ -292,7 +295,10 @@ Log files will log the path to tracks relative to this directory.
         self.parser.add_argument('--track-template',
                                  action="store", dest="track_template",
                                  default=DEFAULT_TRACK_TEMPLATE,
-                                 help="template for track file naming")
+                                 help="template for track file naming; "
+                                      "tracks are written under the disc "
+                                      "output directory even if this "
+                                      "template has no directory prefix")
         self.parser.add_argument('--disc-template',
                                  action="store", dest="disc_template",
                                  default=DEFAULT_DISC_TEMPLATE,
@@ -422,11 +428,25 @@ Log files will log the path to tracks relative to this directory.
                                         self.mbdiscid,
                                         self.program.metadata,
                                         track_number=number) + '.flac'
+            # Issue #692: keep tracks inside the disc folder even when
+            # --track-template has no directory prefix matching --disc-template.
+            aligned_path, aligned = align_track_path(
+                path, discName, self.options.track_template)
+            if aligned:
+                logger.warning(
+                    'track template %r does not expand under the disc '
+                    'directory; writing track %d to %r instead of %r',
+                    self.options.track_template, number, aligned_path, path)
+                path = aligned_path
             logger.debug('ripIfNotRipped: path %r', path)
             trackResult.number = number
 
             assert isinstance(path, str), "%r is not str" % path
             trackResult.filename = path
+            track_dirname = os.path.dirname(path)
+            if track_dirname and not os.path.isdir(track_dirname):
+                logger.info('creating track directory %s', track_dirname)
+                os.makedirs(track_dirname, exist_ok=True)
             if number > 0:
                 trackResult.pregap = self.itable.tracks[number - 1].getPregap()
 
@@ -456,6 +476,7 @@ Log files will log the path to tracks relative to this directory.
                 trackResult.copyduration = 0.0
                 extra = ""
                 tries = 1
+                last_exc = None
                 while tries <= self.options.max_retries:
                     if tries > 1:
                         extra = " (try %d)" % tries
@@ -485,13 +506,21 @@ Log files will log the path to tracks relative to this directory.
                         break
                     # FIXME: catching too general exception (Exception)
                     except Exception as e:
-                        logger.debug('got exception %r on try %d', e, tries)
+                        # Issue #692: never swallow the real failure.
+                        last_exc = e
+                        logger.warning(
+                            'ripping track %d failed on try %d: %s',
+                            number, tries, e)
+                        logger.debug('rip attempt exception detail',
+                                     exc_info=True)
                         tries += 1
 
                 if tries > self.options.max_retries:
                     tries -= 1
-                    logger.critical('giving up on track %d after %d times',
-                                    number, tries)
+                    logger.critical(
+                        'giving up on track %d after %d times: %s',
+                        number, tries,
+                        last_exc if last_exc is not None else 'unknown error')
                     if self.options.keep_going:
                         logger.warning("track %d failed to rip.", number)
                         logger.debug("adding %s to skipped_tracks",
@@ -501,9 +530,11 @@ Log files will log the path to tracks relative to this directory.
                                      self.skipped_tracks)
                         trackResult.skipped = True
                     else:
-                        raise RuntimeError("track can't be ripped. "
-                                           "Rip attempts number is equal "
-                                           "to {}".format(self.options.max_retries))
+                        raise RuntimeError(
+                            "track %d can't be ripped after %d attempt(s): "
+                            "%s" % (number, self.options.max_retries,
+                                    last_exc if last_exc is not None
+                                    else 'unknown error'))
                 if trackResult in self.skipped_tracks:
                     print("Skipping CRC comparison for track %d "
                           "due to rip failure" % number)

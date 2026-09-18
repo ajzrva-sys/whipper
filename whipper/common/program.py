@@ -668,10 +668,21 @@ class Program:
         responses = accurip.get_db_entry(table.accuraterip_path())
         logger.info('%d AccurateRip response(s) found', len(responses))
 
-        checksums = accurip.calculate_checksums([
-            os.path.join(os.path.dirname(self.cuePath), t.indexes[1].path)
-            for t in [t for t in cueImage.cue.table.tracks if t.number != 0]
-        ])
+        # Issue #550: tracks from generic TOCs may have a null FILE path
+        checksum_paths = []
+        for t in [t for t in cueImage.cue.table.tracks if t.number != 0]:
+            try:
+                rel = t.indexes[1].path
+            except (KeyError, IndexError):
+                rel = None
+            if not rel:
+                logger.warning(
+                    'skipping AccurateRip checksum for track %s; no FILE path',
+                    getattr(t, 'number', '?'))
+                continue
+            checksum_paths.append(
+                os.path.join(os.path.dirname(self.cuePath), rel))
+        checksums = accurip.calculate_checksums(checksum_paths)
         if not (checksums and any(checksums['v1']) and any(checksums['v2'])):
             return False
 

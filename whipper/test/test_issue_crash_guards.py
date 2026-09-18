@@ -1,4 +1,4 @@
-# -*- Mode: Python; test-case-name: whipper.test.test_image_toc -*-
+# -*- Mode: Python; test-case-name: whipper.test.test_issue_crash_guards -*-
 # vi:si:et:sw=4:sts=4:ts=4
 
 """Unit tests for crash guards #239/#550/#594/#654."""
@@ -11,6 +11,7 @@ from unittest import mock
 from whipper.image import toc as toc_mod
 from whipper.image import image as image_mod
 from whipper.common import program as program_mod
+from whipper.common import common as common_mod
 
 
 class TocDecodeTestCase(unittest.TestCase):
@@ -21,16 +22,15 @@ class TocDecodeTestCase(unittest.TestCase):
         os.close(fd)
         with open(path, 'wb') as f:
             f.write(b'CD_DA\nFILE "data.wav" 0 00:00:00\n'
-                    b'TRACK AUDIO\nINDEX 00 00:00:00\n'
+                    b'TRACK AUDIO\nINDEX 00:00:00\n'
                     b'# bad byte \x89 here\n')
-        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        self.addCleanup(lambda p=path: os.path.exists(p) and os.unlink(p))
         t = toc_mod.TocFile(path)
         try:
             t.parse()
         except UnicodeDecodeError:
             self.fail('TOC parse raised UnicodeDecodeError')
         except Exception:
-            # other parse issues ok; must not be UnicodeDecodeError
             pass
 
     def testTocParseMissingFile(self):
@@ -44,6 +44,40 @@ class TocDecodeTestCase(unittest.TestCase):
         except Exception as e:
             self.fail('expected FileNotFoundError, got %r' % (e, ))
         self.fail('expected FileNotFoundError')
+
+
+class TocSilenceSourceTestCase(unittest.TestCase):
+    """#550: TOC with SILENCE source (path None) must parse without AttributeError."""
+
+    # cdrdao .toc INDEX lines are "INDEX MM:SS:FF" (no index number).
+    TOC = """CD_DA
+
+TRACK AUDIO
+SILENCE 00:01:00
+FILE "data.wav" 0 00:00:00
+INDEX 00:00:00
+INDEX 00:01:00
+
+TRACK AUDIO
+FILE "data.wav" 00:01:00 00:02:00
+INDEX 00:00:00
+"""
+
+    def testParseSilenceThenFile(self):
+        fd, path = tempfile.mkstemp(suffix='.toc')
+        os.close(fd)
+        with open(path, 'w') as f:
+            f.write(self.TOC)
+        self.addCleanup(lambda p=path: os.path.exists(p) and os.unlink(p))
+        t = toc_mod.TocFile(path)
+        try:
+            t.parse()
+        except AttributeError as e:
+            self.fail('TOC parse AttributeError (issue #550): %s' % e)
+        self.assertTrue(len(t.table.tracks) >= 1)
+        idx = t.table.tracks[0].getIndex(1)
+        self.assertIsNotNone(idx)
+        _ = idx.path  # must not raise
 
 
 class CdrdaoDoneTestCase(unittest.TestCase):
@@ -65,7 +99,6 @@ class CdrdaoDoneTestCase(unittest.TestCase):
         try:
             task._done()
         except Exception as e:
-            # some task frameworks raise immediately
             self.assertIsInstance(e, (FileNotFoundError, OSError))
             return
         self.assertTrue(exceptions)
@@ -110,8 +143,21 @@ class ImageVerifyNonePathTestCase(unittest.TestCase):
         self.assertEqual(getattr(verify, '_tasks', []), [])
 
 
+class GetRealPathNoneTestCase(unittest.TestCase):
+    """#550: getRealPath(None) must KeyError, not AttributeError."""
+
+    def testNonePath(self):
+        try:
+            common_mod.getRealPath('/tmp/x.cue', None)
+        except KeyError:
+            return
+        except AttributeError:
+            self.fail('getRealPath(None) raised AttributeError')
+        self.fail('expected KeyError')
+
+
 class VerifyTrackNoPriorCrcTestCase(unittest.TestCase):
-    """#239/#681: existing EAC files are not re-ripped when testcrc is None."""
+    """#239/#681: existing EAC files not re-ripped when testcrc is None."""
 
     def testReuseWhenNoPriorCrc(self):
         from whipper.result.result import TrackResult

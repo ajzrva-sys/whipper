@@ -96,13 +96,19 @@ class Image:
         for i in range(len(self.cue.table.tracks)):
             length = self.cue.getTrackLength(self.cue.table.tracks[i])
             if length == -1:
-                length = verify.lengths[i + 1]
+                length = verify.lengths.get(i + 1, 0)
             t = table.Track(i + 1, audio=True)
             tracks.append(t)
             # FIXME: this probably only works for non-compliant .CUE files
             # where pregap is put at end of previous file
+            # Issue #550: index/path may be missing on generic TOCs
+            try:
+                idx1 = self.cue.table.tracks[i].getIndex(1)
+                idx_path = getattr(idx1, 'path', None)
+            except (KeyError, IndexError):
+                idx_path = None
             t.index(1, absolute=offset,
-                    path=self.cue.table.tracks[i].getIndex(1).path,
+                    path=idx_path,
                     relative=0)
 
             offset += length

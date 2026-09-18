@@ -75,14 +75,27 @@ class List(BaseCommand):
 
         try:
             import cdio as _  # noqa: F401 (TODO: fix it in a separate PR?)
+            have_pycdio = True
         except ImportError:
-            logger.error('install pycdio for vendor/model/release detection')
-            return
+            have_pycdio = False
+            logger.warning(
+                'install pycdio for vendor/model/release detection; '
+                'listing device nodes only')
 
         for path in paths:
-            vendor, model, release = drive.getDeviceInfo(path)
+            if have_pycdio:
+                info = drive.getDeviceInfo(path)
+                if info:
+                    vendor, model, release = info
+                else:
+                    vendor = model = release = 'unknown'
+            else:
+                vendor = model = release = 'unknown'
             print("drive: %s, vendor: %s, model: %s, release: %s" % (
                   path, vendor, model, release))
+
+            if not have_pycdio:
+                continue
 
             try:
                 offset = self.config.getReadOffset(

@@ -72,3 +72,66 @@ class UnmountDeviceTestCase(common.TestCase):
              mock.patch('whipper.program.utils.subprocess.check_output',
                         side_effect=FileNotFoundError('mount')):
             utils.unmount_device('/dev/cd0')
+
+
+class TrayCommandTestCase(common.TestCase):
+
+    def test_linux_uses_eject(self):
+        with mock.patch('whipper.program.utils.platform.system',
+                        return_value='Linux'), \
+             mock.patch('whipper.program.utils.subprocess.check_output') as co:
+            utils.eject_device('/dev/sr0')
+            utils.load_device('/dev/sr0')
+        co.assert_any_call(['eject', '/dev/sr0'], stderr=subprocess.STDOUT)
+        co.assert_any_call(['eject', '-t', '/dev/sr0'],
+                           stderr=subprocess.STDOUT)
+
+    def test_freebsd_prefers_camcontrol(self):
+        with mock.patch('whipper.program.utils.platform.system',
+                        return_value='FreeBSD'), \
+             mock.patch('whipper.program.utils.os.path.realpath',
+                        side_effect=lambda p: p), \
+             mock.patch('whipper.program.utils.subprocess.check_output') as co:
+            utils.eject_device('/dev/cd0')
+            utils.load_device('/dev/cd0')
+        cmds = [c[0][0] for c in co.call_args_list]
+        self.assertEqual(cmds[0], ['camcontrol', 'eject', 'cd0'])
+        self.assertEqual(cmds[1], ['camcontrol', 'load', 'cd0'])
+        # successful camcontrol means eject(1) is not attempted
+        self.assertEqual(len(cmds), 2)
+
+    def test_missing_eject_is_soft_on_linux(self):
+        with mock.patch('whipper.program.utils.platform.system',
+                        return_value='Linux'), \
+             mock.patch('whipper.program.utils.subprocess.check_output',
+                        side_effect=FileNotFoundError('eject')):
+            utils.eject_device('/dev/sr0')
+            utils.load_device('/dev/sr0')
+
+    def test_freebsd_falls_back_to_eject_when_camcontrol_missing(self):
+        def fake_check_output(cmd, **kwargs):
+            if cmd[0] == 'camcontrol':
+                raise FileNotFoundError('camcontrol')
+            return b''
+
+        with mock.patch('whipper.program.utils.platform.system',
+                        return_value='FreeBSD'), \
+             mock.patch('whipper.program.utils.os.path.realpath',
+                        side_effect=lambda p: p), \
+             mock.patch('whipper.program.utils.subprocess.check_output',
+                        side_effect=fake_check_output) as co:
+            utils.eject_device('/dev/cd0')
+            utils.load_device('/dev/cd0')
+        cmds = [c[0][0] for c in co.call_args_list]
+        self.assertIn(['eject', '/dev/cd0'], cmds)
+        self.assertIn(['eject', '-t', '/dev/cd0'], cmds)
+
+    def test_missing_camcontrol_is_soft_on_freebsd(self):
+        with mock.patch('whipper.program.utils.platform.system',
+                        return_value='FreeBSD'), \
+             mock.patch('whipper.program.utils.os.path.realpath',
+                        side_effect=lambda p: p), \
+             mock.patch('whipper.program.utils.subprocess.check_output',
+                        side_effect=FileNotFoundError('camcontrol')):
+            utils.eject_device('/dev/cd0')
+            utils.load_device('/dev/cd0')

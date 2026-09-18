@@ -167,13 +167,27 @@ Install the same ripping stack from packages/ports (names may vary by
 release):
 
 ```
-pkg install python3 py311-pip cdrdao flac sox libdiscid
-# cd-paranoia / libcdio-paranoia and pycdio (py-cdio) as available
+pkg install python3 py312-pip cdrdao flac sox libdiscid \
+    cdparanoia libcdio-paranoia libsndfile eject
+# pycdio is optional and not always packaged
 ```
 
 Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.
 `pycdio` is optional: without it, drive vendor/model is not recorded and
 you should pass `--offset` (or set it in the config) explicitly.
+
+Build the `accuraterip` extension with ports headers visible:
+
+```
+export CFLAGS="-I/usr/local/include"
+export LDFLAGS="-L/usr/local/lib"
+pip install .
+```
+
+Tray open/close prefers base-system `camcontrol load|eject <periph>`
+(e.g. `cd0`) on BSDs and falls back to `eject` / `eject -t`. Install
+the FreeBSD `eject` package if you want that fallback; a missing binary
+is logged as a warning and does not abort the rip.
 
 ### Optional dependencies
 - [Pillow](https://pypi.org/project/Pillow/), for completely supporting the cover art feature (`embed` and `complete` option values won't work otherwise).

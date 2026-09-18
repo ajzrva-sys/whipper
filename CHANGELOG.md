@@ -11,6 +11,9 @@
   - Detect mounts via `mount(8)` instead of `/proc/mounts` on BSDs
   - Fallback device nodes include `/dev/cd0` and `/dev/acd0`
   - `pycdio` import is optional for `whipper cd rip` (warn and continue)
+  - Tray open/close uses `camcontrol` on BSDs, `eject` as fallback; missing
+    binaries are warnings, not fatal errors
+  - `whipper drive list` still prints device nodes when `pycdio` is missing
 
 ## [v0.10.0](https://github.com/whipper-team/whipper/tree/v0.10.0) (2021-05-17)
 

@@ -177,3 +177,96 @@ class LoggerTestCase(unittest.TestCase):
             parsedLog['SHA-256 hash'],
             hashlib.sha256(log_body).hexdigest().upper()
         )
+
+    def testLoggerReportsCdparanoiaErrors(self):
+        """Suspicious positions and non-fatal events appear in the log."""
+        ripResult = RipResult()
+        ripResult.offset = 6
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "Example Artist"
+        ripResult.title = "Example Album"
+        ripResult.vendor = "HL-DT-ST"
+        ripResult.model = "DVDRAM"
+        ripResult.release = "1.00"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01 - Example.flac"
+        trackResult.pregap = 0
+        trackResult.peak = 29503
+        trackResult.quality = 0.80
+        trackResult.copyspeed = 2.0
+        trackResult.testduration = 10
+        trackResult.copyduration = 10
+        trackResult.testcrc = 0x0025D726
+        trackResult.copycrc = 0x0025D726
+        trackResult.cdparanoiaEvents = {
+            "jitter": 3,
+            "transport error": 1,
+            "skip": 0,
+            "scsi_read error": 2,
+        }
+        trackResult.suspiciousPositions = [(90, 91), (4500, 4510)]
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+
+        log = WhipperLogger().log(ripResult, epoch=0)
+        self.assertIn("cdparanoia events:", log)
+        self.assertIn("jitter: 3", log)
+        self.assertIn("transport error: 1", log)
+        self.assertIn("scsi_read error: 2", log)
+        # zero-valued events are omitted
+        self.assertNotIn("skip:", log)
+        # track-relative positions in MSF
+        self.assertIn("Suspicious positions:", log)
+        self.assertIn("00:01:15 - 00:01:16", log)
+        self.assertIn("01:00:00 - 01:00:10", log)
+        # matching CRCs but severe cdparanoia errors reported
+        self.assertIn("Copy OK (cdparanoia reported severe errors)", log)
+        self.assertIn("Health status: There were errors", log)
+
+    def testLoggerCleanTrackStatusUnchanged(self):
+        ripResult = RipResult()
+        ripResult.offset = 0
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "Example Artist"
+        ripResult.title = "Example Album"
+        ripResult.vendor = "HL-DT-ST"
+        ripResult.model = "DVDRAM"
+        ripResult.release = "1.00"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01 - Example.flac"
+        trackResult.pregap = 0
+        trackResult.peak = 29503
+        trackResult.quality = 1
+        trackResult.copyspeed = 7
+        trackResult.testduration = 10
+        trackResult.copyduration = 10
+        trackResult.testcrc = 0x0025D726
+        trackResult.copycrc = 0x0025D726
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+
+        log = WhipperLogger().log(ripResult, epoch=0)
+        self.assertNotIn("cdparanoia events:", log)
+        self.assertNotIn("Suspicious positions:", log)
+        self.assertIn("Status: Copy OK\n", log)
+        self.assertIn("Health status: No errors occurred", log)

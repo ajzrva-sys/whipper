@@ -4,6 +4,14 @@
 
 [Full Changelog](https://github.com/whipper-team/whipper/compare/v0.10.0...HEAD)
 
+**Implemented enhancements:**
+
+- Patches to run whipper on FreeBSD [\#686](https://github.com/whipper-team/whipper/issues/686)
+  - Skip Linux-only `CDROM_DRIVE_STATUS` ioctl on non-Linux platforms
+  - Detect mounts via `mount(8)` instead of `/proc/mounts` on BSDs
+  - Fallback device nodes include `/dev/cd0` and `/dev/acd0`
+  - `pycdio` import is optional for `whipper cd rip` (warn and continue)
+
 ## [v0.10.0](https://github.com/whipper-team/whipper/tree/v0.10.0) (2021-05-17)
 
 [Full Changelog](https://github.com/whipper-team/whipper/compare/v0.9.0...v0.10.0)

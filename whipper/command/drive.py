@@ -67,9 +67,10 @@ class List(BaseCommand):
         self.config = config.Config()
 
         if not paths:
-            logger.critical('no drives found. Create /dev/cdrom '
-                            'if you have a CD drive, or install '
-                            'pycdio for better detection')
+            logger.critical(
+                'no drives found. Create /dev/cdrom (Linux) or use '
+                '/dev/cd0 (FreeBSD) if you have a CD drive, or install '
+                'pycdio for better detection')
             return
 
         try:

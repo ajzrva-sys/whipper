@@ -19,10 +19,31 @@
 # along with whipper.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import sys
 from fcntl import ioctl
 
 import logging
 logger = logging.getLogger(__name__)
+
+# Linux CDROM_DRIVE_STATUS ioctl return codes
+# https://www.kernel.org/doc/Documentation/ioctl/cdrom.txt
+CDS_NO_INFO = 0
+CDS_NO_DISC = 1
+CDS_TRAY_OPEN = 2
+CDS_DRIVE_NOT_READY = 3
+CDS_DISC_OK = 4
+
+# Linux CDROM_DRIVE_STATUS ioctl number (AKA 'CDROM_DRIVE_STATUS')
+_CDROM_DRIVE_STATUS = 0x5326
+
+# Static fallback device nodes when pycdio is unavailable.
+_STATIC_DEVICE_CANDIDATES = (
+    '/dev/cdrom',
+    '/dev/cdrecorder',
+    '/dev/cd0',
+    '/dev/cd1',
+    '/dev/acd0',
+)
 
 
 def _listify(listOrString):
@@ -54,7 +75,7 @@ def _getAllDevicePathsPyCdio():
 def _getAllDevicePathsStatic():
     ret = []
 
-    for c in ['/dev/cdrom', '/dev/cdrecorder']:
+    for c in _STATIC_DEVICE_CANDIDATES:
         if os.path.exists(c):
             ret.append(c)
 
@@ -76,8 +97,8 @@ def get_cdrom_drive_status(drive_path):
     """
     Get the status of the disc drive.
 
-    Drive status possibilities returned by CDROM_DRIVE_STATUS ioctl:
-    - CDS_NO_INFO         = 0  (if not implemented)
+    Drive status possibilities returned by the Linux CDROM_DRIVE_STATUS ioctl:
+    - CDS_NO_INFO         = 0  (if not implemented / unsupported platform)
     - CDS_NO_DISC         = 1
     - CDS_TRAY_OPEN       = 2
     - CDS_DRIVE_NOT_READY = 3
@@ -87,12 +108,25 @@ def get_cdrom_drive_status(drive_path):
     - https://www.kernel.org/doc/Documentation/ioctl/cdrom.txt
     - https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/cdrom.h  # noqa: E501
 
+    On non-Linux platforms (FreeBSD, DragonFly, …) that ioctl does not
+    exist; this returns CDS_NO_INFO so callers can proceed and leave
+    emptiness detection to cdparanoia/cdrdao (issue #686).
+
     :param drive_path: path to the disc drive
     :type drive_path: str
-    :returns: return code of the 'CDROM_DRIVE_STATUS' ioctl
+    :returns: return code of the 'CDROM_DRIVE_STATUS' ioctl, or
+              CDS_NO_INFO on platforms without that ioctl
     :rtype: int
     """
+    if not sys.platform.startswith('linux'):
+        logger.debug(
+            'CDROM_DRIVE_STATUS ioctl not supported on %s, '
+            'assuming disc may be present', sys.platform)
+        return CDS_NO_INFO
+
     fd = os.open(drive_path, os.O_RDONLY | os.O_NONBLOCK)
-    rc = ioctl(fd, 0x5326)  # AKA 'CDROM_DRIVE_STATUS'
-    os.close(fd)
+    try:
+        rc = ioctl(fd, _CDROM_DRIVE_STATUS)
+    finally:
+        os.close(fd)
     return rc

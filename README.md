@@ -157,6 +157,24 @@ PyPI installable dependencies are listed in the [requirements.txt](https://githu
 
 `pip3 install -r requirements.txt`
 
+### FreeBSD
+
+Whipper can run on FreeBSD. Linux-only pieces are skipped automatically
+(CDROM_DRIVE_STATUS ioctl, `/proc/mounts` unmount detection) — see
+[#686](https://github.com/whipper-team/whipper/issues/686).
+
+Install the same ripping stack from packages/ports (names may vary by
+release):
+
+```
+pkg install python3 py311-pip cdrdao flac sox libdiscid
+# cd-paranoia / libcdio-paranoia and pycdio (py-cdio) as available
+```
+
+Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.
+`pycdio` is optional: without it, drive vendor/model is not recorded and
+you should pass `--offset` (or set it in the config) explicitly.
+
 ### Optional dependencies
 - [Pillow](https://pypi.org/project/Pillow/), for completely supporting the cover art feature (`embed` and `complete` option values won't work otherwise).
 - [docutils](https://pypi.org/project/docutils/), to build the man pages.

@@ -173,8 +173,10 @@ pkg install python3 py312-pip cdrdao flac sox libdiscid \
 ```
 
 Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.
-`pycdio` is optional: without it, drive vendor/model is not recorded and
-you should pass `--offset` (or set it in the config) explicitly.
+`pycdio` is optional: without it, whipper falls back to FreeBSD
+`camcontrol inquiry` for vendor/model/release so `drive list` and rip
+logs still name the drive. You should still pass `--offset` (or set it
+in the config) when the offset is not stored for that identity.
 
 Build the `accuraterip` extension with ports headers visible:
 
@@ -188,6 +190,19 @@ Tray open/close prefers base-system `camcontrol load|eject <periph>`
 (e.g. `cd0`) on BSDs and falls back to `eject` / `eject -t`. Install
 the FreeBSD `eject` package if you want that fallback; a missing binary
 is logged as a warning and does not abort the rip.
+
+`cdrdao` is invoked with `--driver generic-mmc` on non-Linux platforms
+so CAM/USB optical drives get a predictable SCSI transport.
+
+Optional pycdio (for parity with Linux offset-by-drive storage) can be
+built from source once `pkg-config`, `swig`, and `libcdio` are present:
+
+```
+pkg install pkgconf swig libcdio
+pip install pycdio
+```
+
+There is currently no FreeBSD quarterly package for pycdio.
 
 ### Optional dependencies
 - [Pillow](https://pypi.org/project/Pillow/), for completely supporting the cover art feature (`embed` and `complete` option values won't work otherwise).

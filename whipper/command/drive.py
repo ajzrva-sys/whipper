@@ -73,28 +73,21 @@ class List(BaseCommand):
                 'pycdio for better detection')
             return
 
-        try:
-            import cdio as _  # noqa: F401 (TODO: fix it in a separate PR?)
-            have_pycdio = True
-        except ImportError:
-            have_pycdio = False
-            logger.warning(
-                'install pycdio for vendor/model/release detection; '
-                'listing device nodes only')
-
         for path in paths:
-            if have_pycdio:
-                info = drive.getDeviceInfo(path)
-                if info:
-                    vendor, model, release = info
-                else:
-                    vendor = model = release = 'unknown'
+            # pycdio when present; camcontrol on FreeBSD otherwise
+            info = drive.getDeviceInfo(path)
+            if info:
+                vendor, model, release = info
             else:
                 vendor = model = release = 'unknown'
             print("drive: %s, vendor: %s, model: %s, release: %s" % (
                   path, vendor, model, release))
 
-            if not have_pycdio:
+            if vendor == 'unknown' and model == 'unknown':
+                logger.warning(
+                    'no hardware info for %s; install pycdio (or on '
+                    'FreeBSD ensure camcontrol works) for offset '
+                    'configuration by drive', path)
                 continue
 
             try:

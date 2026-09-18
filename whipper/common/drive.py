@@ -19,6 +19,8 @@
 # along with whipper.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import re
+import subprocess
 import sys
 from fcntl import ioctl
 
@@ -44,6 +46,10 @@ _STATIC_DEVICE_CANDIDATES = (
     '/dev/cd1',
     '/dev/acd0',
 )
+
+# FreeBSD camcontrol inquiry: pass1: <PLEXTOR DVDR   PX-750A 1.02> ...
+_CAMCONTROL_INQUIRY_RE = re.compile(
+    r'<(?P<vendor>\S+)\s+(?P<model>\S.*?)\s+(?P<release>[\w.+-]+)>')
 
 
 def _listify(listOrString):
@@ -82,15 +88,51 @@ def _getAllDevicePathsStatic():
     return ret
 
 
+def _getDeviceInfoCamcontrol(path):
+    """
+    Identify an optical drive via FreeBSD camcontrol inquiry.
+
+    Returns (vendor, model, release) or None. Issue #686: used when
+    pycdio is not available so logs and drive list still name the drive.
+    """
+    periph = os.path.basename(os.path.realpath(path))
+    try:
+        out = subprocess.check_output(
+            ['camcontrol', 'inquiry', periph],
+            stderr=subprocess.DEVNULL).decode(errors='replace')
+    except (OSError, subprocess.CalledProcessError) as e:
+        logger.debug('camcontrol inquiry failed for %r: %s', path, e)
+        return None
+    m = _CAMCONTROL_INQUIRY_RE.search(out)
+    if not m:
+        logger.debug('camcontrol inquiry unparseable for %r: %r', path, out)
+        return None
+    return m.group('vendor'), m.group('model'), m.group('release')
+
+
 def getDeviceInfo(path):
+    """
+    Return (vendor, model, release) for an optical drive path.
+
+    Prefers pycdio; falls back to camcontrol on FreeBSD/DragonFly when
+    pycdio is missing or fails.
+    """
     try:
         import cdio
     except ImportError:
-        return None
-    device = cdio.Device(path)
-    _, vendor, model, release = device.get_hwinfo()
+        cdio = None
 
-    return vendor, model, release
+    if cdio is not None:
+        try:
+            device = cdio.Device(path)
+            _, vendor, model, release = device.get_hwinfo()
+            return vendor, model, release
+        except Exception as e:  # noqa: BLE001 - identity is best-effort
+            logger.debug('pycdio hwinfo failed for %r: %s', path, e)
+
+    if not sys.platform.startswith('linux'):
+        return _getDeviceInfoCamcontrol(path)
+    return None
 
 
 def get_cdrom_drive_status(drive_path):

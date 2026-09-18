@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class CRC32Task(etask.Task):
+    description = 'Computing CRC checksum'
     # TODO: Support sampleStart, sampleLength later on (should be trivial, just
     # add change the read part in _crc32 to skip some samples and/or not
     # read too far)

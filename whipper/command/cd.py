@@ -30,11 +30,6 @@ from whipper.common.common import validate_template
 from whipper.program import cdrdao, cdparanoia, utils
 from whipper.result import result
 
-try:
-    import cdio
-except ImportError:  # FreeBSD / minimal installs without pycdio (#686)
-    cdio = None
-
 logger = logging.getLogger(__name__)
 
 
@@ -198,19 +193,16 @@ class _CD(BaseCommand):
         self.program.result.title = self.program.metadata \
             and self.program.metadata.releaseTitle \
             or 'Unknown Title'
-        if cdio is not None:
-            try:
-                (_, self.program.result.vendor,
-                 self.program.result.model,
-                 self.program.result.release) = \
-                    cdio.Device(self.device).get_hwinfo()
-            except Exception as e:  # noqa: BLE001 - hwinfo is best-effort
-                logger.warning('could not read drive hardware info via '
-                               'pycdio: %s', e)
+        # pycdio first, then FreeBSD camcontrol (issue #686)
+        if info:
+            (self.program.result.vendor,
+             self.program.result.model,
+             self.program.result.release) = info
         else:
-            logger.warning('pycdio not available; drive vendor/model '
-                           'will not be recorded (install pycdio for '
-                           'offset configuration by drive)')
+            logger.warning(
+                'could not identify drive hardware info; '
+                'vendor/model will not be recorded in the rip log '
+                '(install pycdio, or on FreeBSD ensure camcontrol works)')
         self.program.result.metadata = self.program.metadata
 
         ret = self.doCommand()

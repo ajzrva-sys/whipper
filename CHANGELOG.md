@@ -14,6 +14,11 @@
   - Tray open/close uses `camcontrol` on BSDs, `eject` as fallback; missing
     binaries are warnings, not fatal errors
   - `whipper drive list` still prints device nodes when `pycdio` is missing
+  - Drive identity falls back to `camcontrol inquiry` on FreeBSD (no more
+    `Drive: NoneNone` in rip logs)
+  - `cdrdao` uses `--driver generic-mmc` on non-Linux platforms
+  - Rip logs format missing drive fields as `unknown`; CRC task progress
+    is labeled instead of the placeholder description
 
 ## [v0.10.0](https://github.com/whipper-team/whipper/tree/v0.10.0) (2021-05-17)
 

@@ -319,7 +319,8 @@ class VersionGetter:
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, close_fds=True) as p:
                 p.wait()
-                output = asyncsub.recv_some(p, e=0, stderr=1).decode()
+                output = asyncsub.recv_some(
+                    p, e=0, stderr=1).decode('utf-8', errors='replace')
             vre = self._regexp.search(output)
             if vre:
                 version = self._expander % vre.groupdict()

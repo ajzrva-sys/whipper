@@ -52,4 +52,7 @@ class AudioLengthTask(ctask.PopenTask):
     def done(self):
         if self._error:
             logger.warning("soxi reported on stderr: %s", "".join(self._error))
-        self.length = int("".join(o.decode() for o in self._output))
+        # Issue #654: tolerate non-UTF-8 soxi output
+        self.length = int("".join(
+            o.decode('utf-8', errors='replace') if isinstance(o, bytes) else o
+            for o in self._output).strip() or 0)

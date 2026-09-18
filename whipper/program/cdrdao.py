@@ -192,7 +192,9 @@ def DetectCdr(device):
     cmd = [CDRDAO, 'disk-info', '-v1', '--device', device]
     logger.debug("executing %r", cmd)
     p = Popen(cmd, stdout=PIPE, stderr=PIPE)
-    return 'CD-R medium          : n/a' not in p.stdout.read().decode()
+    # Issue #654: avoid UnicodeDecodeError on odd drive strings
+    out = p.stdout.read().decode('utf-8', errors='replace')
+    return 'CD-R medium          : n/a' not in out
 
 
 def version():
@@ -203,8 +205,8 @@ def version():
         logger.warning("cdrdao version detection failed: "
                        "return code is %s", cdrdao.returncode)
         return None
-    m = re.compile(r'^Cdrdao version (?P<version>[^ ]*)').search(
-        err.decode('utf-8'))
+    err_text = (err or b'').decode('utf-8', errors='replace')
+    m = re.compile(r'^Cdrdao version (?P<version>[^ ]*)').search(err_text)
     if not m:
         logger.warning("cdrdao version detection failed: "
                        "could not find version")

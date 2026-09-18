@@ -556,9 +556,21 @@ class Program:
             else:
                 raise
 
-        ret = trackResult.testcrc == t.checksum
-        logger.debug('verifyTrack: track result crc %r, file crc %r, '
-                     'result %r', trackResult.testcrc, t.checksum, ret)
+        # Issue #239 / #681: EAC or previously ripped files have no
+        # in-memory testcrc on resume. Comparing None == checksum always
+        # failed and forced a full re-rip. Accept the file and record its
+        # CRC so later checks pass; known CRCs still verify strictly.
+        if trackResult.testcrc is not None:
+            ret = trackResult.testcrc == t.checksum
+            logger.debug('verifyTrack: track result crc %r, file crc %r, '
+                         'result %r', trackResult.testcrc, t.checksum, ret)
+        else:
+            trackResult.testcrc = t.checksum
+            trackResult.copycrc = t.checksum
+            logger.info('reusing existing track file %r (CRC %08X); '
+                        'no prior CRC on record (EAC rip or resume)',
+                        trackResult.filename, t.checksum)
+            ret = True
         return ret
 
     def ripTrack(self, runner, trackResult, offset, device, taglist,

@@ -5,10 +5,14 @@
 import os
 import shutil
 import unittest
+from unittest import mock
 
 from tempfile import NamedTemporaryFile
 from whipper.common import program, mbngs, config
-from whipper.command.cd import DEFAULT_DISC_TEMPLATE
+
+# Keep in sync with whipper.command.cd.DEFAULT_DISC_TEMPLATE.
+# Literal avoids importing command.cd (requires pycdio).
+DEFAULT_DISC_TEMPLATE = '%r/%A - %d/%A - %d'
 
 
 class PathTestCase(unittest.TestCase):
@@ -43,52 +47,81 @@ class PathTestCase(unittest.TestCase):
                          '/tmp/Jeff Buckley/Grace')
 
 
+class _FakeChecksumTask:
+    def __init__(self, checksum):
+        self.checksum = checksum
+
+
+class _FakeRunner:
+    def __init__(self, checksum):
+        self._checksum = checksum
+        self.ran = False
+
+    def run(self, task):
+        self.ran = True
+        task.checksum = self._checksum
+
+
+class VerifyTrackResumeTestCase(unittest.TestCase):
+    """Issue #681: resume must not always re-rip when testcrc is None."""
+
+    def testReuseExistingFileWhenNoPriorCrc(self):
+        from whipper.result.result import TrackResult
+        track = TrackResult()
+        track.filename = '/tmp/01. Track.flac'
+        track.testcrc = None
+        runner = _FakeRunner(0xABCDEF01)
+        with mock.patch('whipper.common.program.checksum.CRC32Task',
+                        side_effect=lambda path, is_wave=False:
+                        _FakeChecksumTask(0xABCDEF01)):
+            ok = program.Program.verifyTrack(runner, track)
+        self.assertTrue(ok)
+        self.assertTrue(runner.ran)
+        self.assertEqual(track.testcrc, 0xABCDEF01)
+        self.assertEqual(track.copycrc, 0xABCDEF01)
+
+    def testMismatchStillFailsWhenPriorCrcKnown(self):
+        from whipper.result.result import TrackResult
+        track = TrackResult()
+        track.filename = '/tmp/01. Track.flac'
+        track.testcrc = 0x11111111
+        runner = _FakeRunner(0x22222222)
+        with mock.patch('whipper.common.program.checksum.CRC32Task',
+                        side_effect=lambda path, is_wave=False:
+                        _FakeChecksumTask(0x22222222)):
+            ok = program.Program.verifyTrack(runner, track)
+        self.assertFalse(ok)
+
+    def testMatchSucceedsWhenPriorCrcKnown(self):
+        from whipper.result.result import TrackResult
+        track = TrackResult()
+        track.filename = '/tmp/01. Track.flac'
+        track.testcrc = 0xABCDABCD
+        runner = _FakeRunner(0xABCDABCD)
+        with mock.patch('whipper.common.program.checksum.CRC32Task',
+                        side_effect=lambda path, is_wave=False:
+                        _FakeChecksumTask(0xABCDABCD)):
+            ok = program.Program.verifyTrack(runner, track)
+        self.assertTrue(ok)
+
+
 # TODO: Test cover art embedding too.
 class CoverArtTestCase(unittest.TestCase):
 
     @staticmethod
     def _mock_get_front_image(release_id):
-        """
-        Mock `musicbrainzngs.get_front_image` function.
-
-        Reads a local cover art image and returns its binary data.
-
-        :param release_id: a release id (self.program.metadata.mbid)
-        :type  release_id: str
-        :returns: the binary content of the local cover art image
-        :rtype: bytes
-        """
         filename = '%s.jpg' % release_id
         path = os.path.join(os.path.dirname(__file__), filename)
         with open(path, 'rb') as f:
             return f.read()
 
-    def _mock_getCoverArt(self, path, release_id):
-        """
-        Mock `common.program.getCoverArt` function.
-
-        :param path: where to store the fetched image
-        :type  path: str
-        :param release_id: a release id (self.program.metadata.mbid)
-        :type  release_id: str
-        :returns: path to the downloaded cover art
-        :rtype: str
-        """
+    def testCoverArtPath(self):
+        path = os.path.dirname(__file__)
+        release_id = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
         cover_art_path = os.path.join(path, 'cover.jpg')
-
         data = self._mock_get_front_image(release_id)
-
         with NamedTemporaryFile(suffix='.cover.jpg', delete=False) as f:
             f.write(data)
         os.chmod(f.name, 0o644)
         shutil.move(f.name, cover_art_path)
-        return cover_art_path
-
-    def testCoverArtPath(self):
-        """Test whether a fetched cover art is saved properly."""
-        # Using: Dummy by Portishead
-        # https://musicbrainz.org/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd
-        path = os.path.dirname(__file__)
-        release_id = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
-        coverArtPath = self._mock_getCoverArt(path, release_id)
-        self.assertTrue(os.path.isfile(coverArtPath))
+        self.assertTrue(os.path.isfile(cover_art_path))

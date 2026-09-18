@@ -75,18 +75,58 @@ _ERROR_RE = re.compile("^scsi_read error:")
 
 # cdparanoia --stderr-progress function names, classified for reporting.
 # Routine callbacks do not indicate a problem with the disc.
-_ROUTINE_FUNCTIONS = frozenset({
+ROUTINE_FUNCTIONS = frozenset({
     'read', 'wrote', 'verify', 'finished',
 })
 # Corrections mean cdparanoia had to re-read or patch data; the final sample
-# may still be accurate, but the position is worth listing (cf. EAC).
-_CORRECTION_FUNCTIONS = frozenset({
+# may still be accurate (test/copy CRCs often match), but the position is
+# worth listing (cf. EAC "Suspicious position").
+CORRECTION_FUNCTIONS = frozenset({
     'jitter', 'correction', 'overlap', 'dropped', 'dup', 'scratch',
 })
-# Severe callbacks indicate unreadable or skipped data.
-_SEVERE_FUNCTIONS = frozenset({
+# Severe callbacks: sectors were skipped or SCSI reads failed after retries.
+# These are the events that can make a rip definitely lossy even when CRCs
+# match (both passes may agree on the same filled/bad data). See issue #294.
+SEVERE_FUNCTIONS = frozenset({
     'skip', 'transport error',
 })
+# scsi_read error lines are counted as severe in addition to SEVERE_FUNCTIONS.
+SCSI_ERROR_NAME = 'scsi_read error'
+
+# Backwards-compatible aliases
+_ROUTINE_FUNCTIONS = ROUTINE_FUNCTIONS
+_CORRECTION_FUNCTIONS = CORRECTION_FUNCTIONS
+_SEVERE_FUNCTIONS = SEVERE_FUNCTIONS
+
+
+def classify_cdparanoia_events(events):
+    """
+    Classify cdparanoia event counts for rip-health reporting (#294).
+
+    :param events: mapping of callback name -> count
+    :type  events: dict or None
+    :returns: ``(severe, corrections, lossy_names)``
+      - ``severe``: total count of events that may indicate lost data
+      - ``corrections``: total count of re-read/patch events (usually OK)
+      - ``lossy_names``: sorted names of severe events that occurred
+    :rtype: tuple(int, int, list(str))
+    """
+    severe = 0
+    corrections = 0
+    lossy_names = set()
+    for name, count in (events or {}).items():
+        if not count:
+            continue
+        if name in SEVERE_FUNCTIONS or name == SCSI_ERROR_NAME:
+            severe += count
+            lossy_names.add(name)
+        elif name in CORRECTION_FUNCTIONS:
+            corrections += count
+        elif name not in ROUTINE_FUNCTIONS:
+            # Unknown non-routine callback: report as a correction, not lossy
+            corrections += count
+    return severe, corrections, sorted(lossy_names)
+
 
 # Merge suspicious frames within this many CD frames (~1s) into one range.
 _SUSPICIOUS_MERGE_FRAMES = 75
@@ -138,21 +178,21 @@ class ProgressParser:
         if m:
             self.errors += 1
             self.severeErrors += 1
-            self.eventCounts['scsi_read error'] = (
-                self.eventCounts.get('scsi_read error', 0) + 1)
+            self.eventCounts[SCSI_ERROR_NAME] = (
+                self.eventCounts.get(SCSI_ERROR_NAME, 0) + 1)
             if self.read >= self.start:
                 self._suspiciousFrames.append(int(self.read))
 
     def _record_event(self, function, wordOffset):
         """Count non-routine cdparanoia callbacks and remember positions."""
-        if function in _ROUTINE_FUNCTIONS:
+        if function in ROUTINE_FUNCTIONS:
             return
 
         self.eventCounts[function] = self.eventCounts.get(function, 0) + 1
 
-        if function in _SEVERE_FUNCTIONS:
+        if function in SEVERE_FUNCTIONS:
             self.severeErrors += 1
-        elif function in _CORRECTION_FUNCTIONS:
+        elif function in CORRECTION_FUNCTIONS:
             self.corrections += 1
         else:
             # Unknown non-routine callback: treat as a correction for

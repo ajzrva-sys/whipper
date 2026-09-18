@@ -109,10 +109,15 @@ class DiscMetadata:
     discNumber = None
     discTotal = None
     mediumTitle = None
+    # Issue #309: MusicBrainz genres (release and/or release-group)
+    genres = None
+    # Issue #485: optional hidden-track title when MB documents one
+    htoaTitle = None
 
     def __init__(self):
         self.tracks = []
         self.catalogNumbers = []
+        self.genres = []
 
 
 def _record(record, which, name, what):
@@ -232,6 +237,22 @@ def _getPerformers(recording):
     return sorted(performers)  # convert to list: mutagen doesn't support set
 
 
+def _genre_names(entity):
+    """
+    Extract genre name list from a MusicBrainz release or release-group.
+
+    :param entity: MB entity that may contain ``genre-list``
+    :type entity: dict
+    :rtype: list(str)
+    """
+    names = []
+    for genre in entity.get('genre-list') or []:
+        name = genre.get('name')
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _getMetadata(release, discid=None, country=None):
     """
     Get disc metadata based upon the provided release id.
@@ -283,6 +304,9 @@ def _getMetadata(release, discid=None, country=None):
     discMD.url = 'https://musicbrainz.org/release/' + release['id']
 
     discMD.barcode = release.get('barcode', None)
+    # Issue #309: collect genres from the release and release-group
+    discMD.genres = _genre_names(release) or _genre_names(
+        release.get('release-group') or {})
     mb_rel = release.get('release-event-list', None)
     # NOTE: check included as I don't know if this one is always available
     if mb_rel is not None:
@@ -389,7 +413,8 @@ def getReleaseMetadata(release_id, discid=None, country=None, record=False):
                                   "recordings", "discids",
                                   "labels", "recording-level-rels",
                                   "work-rels", "release-groups",
-                                  "work-level-rels", "artist-rels"])
+                                  "work-level-rels", "artist-rels",
+                                  "genres"])
     _record(record, 'release', release_id, res)
     releaseDetail = res['release']
     formatted = json.dumps(releaseDetail, sort_keys=False, indent=4)
@@ -421,7 +446,8 @@ def musicbrainz(discid, country=None, record=False):
 
     try:
         result = musicbrainzngs.get_releases_by_discid(
-            discid, includes=["artists", "recordings", "release-groups"])
+            discid, includes=["artists", "recordings", "release-groups",
+                              "genres"])
     except musicbrainzngs.ResponseError as e:
         if isinstance(e.cause, HTTPError):
             if e.cause.code == 404:

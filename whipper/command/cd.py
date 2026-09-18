@@ -114,17 +114,25 @@ class _CD(BaseCommand):
         self.program.getRipResult()
         print("CDDB disc id: %s" % self.ittoc.getCDDBDiscId())
         self.mbdiscid = self.ittoc.getMusicBrainzDiscId()
-        print("MusicBrainz disc id %s" % self.mbdiscid)
+        if self.mbdiscid is None:
+            logger.warning(
+                "MusicBrainz disc id could not be computed from the TOC "
+                "(disc may be over-long or the TOC invalid); "
+                "metadata lookup will be skipped")
+        else:
+            print("MusicBrainz disc id %s" % self.mbdiscid)
+            print("MusicBrainz lookup URL %s" %
+                  self.ittoc.getMusicBrainzSubmitURL())
 
-        print("MusicBrainz lookup URL %s" %
-              self.ittoc.getMusicBrainzSubmitURL())
-
-        self.program.metadata = (
-            self.program.getMusicBrainz(self.ittoc, self.mbdiscid,
-                                        release=self.options.release_id,
-                                        country=self.options.country,
-                                        prompt=self.options.prompt)
-        )
+        if self.mbdiscid is not None:
+            self.program.metadata = (
+                self.program.getMusicBrainz(self.ittoc, self.mbdiscid,
+                                            release=self.options.release_id,
+                                            country=self.options.country,
+                                            prompt=self.options.prompt)
+            )
+        else:
+            self.program.metadata = None
 
         if not self.program.metadata:
             # fall back to FreeDB for lookup
@@ -165,14 +173,21 @@ class _CD(BaseCommand):
                                             self.ittoc.getMusicBrainzDiscId(),
                                             self.device, offset, out_fpath)
 
-        assert self.itable.getCDDBDiscId() == self.ittoc.getCDDBDiscId(), \
-            "full table's id %s differs from toc id %s" % (
-                self.itable.getCDDBDiscId(), self.ittoc.getCDDBDiscId())
-        assert self.itable.getMusicBrainzDiscId() == \
-            self.ittoc.getMusicBrainzDiscId(), \
-            "full table's mb id %s differs from toc id mb %s" % (
-            self.itable.getMusicBrainzDiscId(),
-            self.ittoc.getMusicBrainzDiscId())
+        fast_cddb = self.ittoc.getCDDBDiscId()
+        full_cddb = self.itable.getCDDBDiscId()
+        if full_cddb != fast_cddb:
+            raise RuntimeError(
+                "full table's id %s differs from toc id %s "
+                "(cdrdao may have produced a corrupt TOC; try again)"
+                % (full_cddb, fast_cddb))
+
+        fast_mb = self.ittoc.getMusicBrainzDiscId()
+        full_mb = self.itable.getMusicBrainzDiscId()
+        if fast_mb is not None and full_mb is not None and full_mb != fast_mb:
+            raise RuntimeError(
+                "full table's mb id %s differs from toc id mb %s "
+                "(cdrdao may have produced a corrupt TOC; try again)"
+                % (full_mb, fast_mb))
 
         if self.program.metadata:
             self.program.metadata.discid = self.ittoc.getMusicBrainzDiscId()
@@ -228,9 +243,6 @@ class Info(_CD):
 class Rip(_CD):
     summary = "rip CD"
     # see whipper.common.program.Program.getPath for expansion
-    skipped_tracks = []
-    # this holds tracks that fail to rip -
-    # currently only used when the --keep-going option is used
     description = """
 Rips a CD.
 
@@ -246,6 +258,11 @@ Log files will log the path to tracks relative to this directory.
 
     # Requires opts.record
     # Requires opts.device
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # tracks that fail to rip; used when --keep-going is set
+        self.skipped_tracks = []
 
     # XXX: Pylint, parameters differ from overridden 'add_arguments' method
     def add_arguments(self):
@@ -325,7 +342,8 @@ Log files will log the path to tracks relative to this directory.
                                  action='store_true',
                                  help="continue ripping further tracks "
                                  "instead of giving up if a track "
-                                 "can't be ripped")
+                                 "can't be ripped; results for successful "
+                                 "tracks are still written when a rip aborts")
 
     def handle_arguments(self):
         self.options.output_directory = os.path.expanduser(
@@ -501,9 +519,12 @@ Log files will log the path to tracks relative to this directory.
                                      self.skipped_tracks)
                         trackResult.skipped = True
                     else:
-                        raise RuntimeError("track can't be ripped. "
-                                           "Rip attempts number is equal "
-                                           "to {}".format(self.options.max_retries))
+                        raise RuntimeError(
+                            "track %d can't be ripped after %d attempt(s); "
+                            "pass --keep-going to skip failed tracks and "
+                            "continue, or raise --max-retries"
+                            % (number, self.options.max_retries)
+                        )
                 if trackResult in self.skipped_tracks:
                     print("Skipping CRC comparison for track %d "
                           "due to rip failure" % number)
@@ -542,23 +563,42 @@ Log files will log the path to tracks relative to this directory.
                                     self.itable.getTrackLength(number),
                                     number)
 
+        def _writePartialResults(discName):
+            """Write cue/m3u/log for whatever was ripped before an abort."""
+            logger.warning(
+                'rip aborted; writing results for successfully ripped tracks')
+            try:
+                self.program.writeCue(discName)
+                self.program.write_m3u(discName)
+                if len(self.skipped_tracks) > 0:
+                    self.program.skipped_tracks = self.skipped_tracks
+                accurip.print_report(self.program.result)
+                self.program.writeLog(discName, self.logger)
+            except Exception as e:  # noqa: BLE001 - best-effort cleanup
+                logger.error('failed to write partial rip results: %s', e)
+
         # check for hidden track one audio
         htoa = self.program.getHTOA()
-        if htoa:
-            start, stop = htoa
-            logger.info('found Hidden Track One Audio from frame %d to %d',
-                        start, stop)
-            _ripIfNotRipped(0)
+        try:
+            if htoa:
+                start, stop = htoa
+                logger.info('found Hidden Track One Audio from frame %d to %d',
+                            start, stop)
+                _ripIfNotRipped(0)
 
-        for i, track in enumerate(self.itable.tracks):
-            # FIXME: rip data tracks differently
-            if not track.audio:
-                logger.warning('skipping data track %d, not implemented',
-                               i + 1)
-                # FIXME: make it work for now
-                track.indexes[1].relative = 0
-                continue
-            _ripIfNotRipped(i + 1)
+            for i, track in enumerate(self.itable.tracks):
+                # FIXME: rip data tracks differently
+                if not track.audio:
+                    logger.warning('skipping data track %d, not implemented',
+                                   i + 1)
+                    # FIXME: make it work for now
+                    track.indexes[1].relative = 0
+                    continue
+                _ripIfNotRipped(i + 1)
+        except Exception:
+            # Issue #560: do not throw away tracks that already ripped
+            _writePartialResults(discName)
+            raise
 
         # NOTE: Seems like some kind of with … or try: … finally: … clause
         # would be more appropriate, since otherwise this would potentially

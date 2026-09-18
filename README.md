@@ -194,6 +194,13 @@ is logged as a warning and does not abort the rip.
 `cdrdao` is invoked with `--driver generic-mmc` on non-Linux platforms
 so CAM/USB optical drives get a predictable SCSI transport.
 
+`whipper offset find` probes AccurateRip offsets known for the detected
+drive model first (and any configured read offset) before the rest of
+the offset list. Use `--no-prioritize-known` to force the raw `-o`
+list only. Regenerate the model table from a download of
+http://www.accuraterip.com/driveoffsets.htm with
+`misc/gen_drive_offsets.py` if needed.
+
 Optional pycdio (for parity with Linux offset-by-drive storage) can be
 built from source once `pkg-config`, `swig`, and `libcdio` are present:
 

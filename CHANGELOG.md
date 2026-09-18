@@ -19,6 +19,9 @@
   - `cdrdao` uses `--driver generic-mmc` on non-Linux platforms
   - Rip logs format missing drive fields as `unknown`; CRC task progress
     is labeled instead of the placeholder description
+  - `whipper offset find` tries AccurateRip-known offsets for the detected
+    drive model first (e.g. Plextor PX-750A → +102), plus any configured
+    read offset; disable with `--no-prioritize-known`
 
 ## [v0.10.0](https://github.com/whipper-team/whipper/tree/v0.10.0) (2021-05-17)
 

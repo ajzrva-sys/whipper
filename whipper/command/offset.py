@@ -24,6 +24,7 @@ import tempfile
 import logging
 from whipper.command.basecommand import BaseCommand
 from whipper.common import accurip, common, config, drive
+from whipper.common import drive_offsets
 from whipper.common import task as ctask
 from whipper.program import arc, cdrdao, cdparanoia, utils
 from whipper.extern.task import task
@@ -59,23 +60,47 @@ CD in the AccurateRip database."""
             action="store", dest="offsets", default=OFFSETS,
             help="list of offsets, comma-separated, colon-separated for ranges"
         )
+        self.parser.add_argument(
+            '--no-prioritize-known',
+            action="store_true", dest="no_prioritize_known", default=False,
+            help="do not prepend AccurateRip offsets known for the detected "
+                 "drive model (and any configured read offset)"
+        )
 
     def handle_arguments(self):
-        self._offsets = []
-        blocks = self.options.offsets.split(',')
-        for b in blocks:
-            if ':' in b:
-                a, b = b.split(':')
-                self._offsets.extend(list(range(int(a), int(b) + 1)))
-            else:
-                self._offsets.append(int(b))
-
-        logger.debug('trying with offsets %r', self._offsets)
+        self._offsets = drive_offsets.parse_offset_list(self.options.offsets)
+        logger.debug('requested offsets %r', self._offsets)
 
     def do(self):
         runner = ctask.SyncRunner()
 
         device = self.options.device
+        prioritize = not self.options.no_prioritize_known
+
+        drive_info = drive.getDeviceInfo(device)
+        configured = None
+        if drive_info:
+            try:
+                configured = config.Config().getReadOffset(*drive_info)
+            except (KeyError, TypeError, ValueError):
+                configured = None
+
+        self._offsets = drive_offsets.order_offsets(
+            self._offsets,
+            drive_info=drive_info,
+            configured=configured,
+            prioritize_known=prioritize,
+        )
+        if prioritize:
+            known = drive_offsets.known_offsets_for(
+                *(drive_info[:2] if drive_info else (None, None)))
+            logger.info(
+                'probe order %r (drive %s; AccurateRip-known %s; '
+                'configured %s)',
+                self._offsets,
+                '%s %s' % drive_info[:2] if drive_info else 'unknown',
+                known or 'none',
+                configured)
 
         # if necessary, load and unmount
         logger.info('checking device %s', device)

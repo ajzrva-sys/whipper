@@ -25,6 +25,7 @@ import logging
 from whipper.command.basecommand import BaseCommand
 from whipper.common import accurip, common, config, drive
 from whipper.common import drive_offsets
+from whipper.common import offsetfind
 from whipper.common import task as ctask
 from whipper.program import arc, cdrdao, cdparanoia, utils
 from whipper.extern.task import task
@@ -65,6 +66,11 @@ CD in the AccurateRip database."""
             action="store_true", dest="no_prioritize_known", default=False,
             help="do not prepend AccurateRip offsets known for the detected "
                  "drive model (and any configured read offset)"
+        )
+        self.parser.add_argument(
+            '--no-frame450',
+            action="store_true", dest="no_frame450", default=False,
+            help="skip the AccurateRip OffsetFindCRC (frame 450) fast path"
         )
 
     def handle_arguments(self):
@@ -110,7 +116,8 @@ CD in the AccurateRip database."""
         utils.unmount_device(device)
 
         # first get the Table Of Contents of the CD
-        t = cdrdao.ReadTOCTask(device)
+        # fast_toc: we only need track starts/lengths for AR + frame 450
+        t = cdrdao.ReadTOCTask(device, fast_toc=True)
         runner.run(t)
         table = t.toc.table
 
@@ -132,6 +139,47 @@ CD in the AccurateRip database."""
             if responses[0].cddbDiscId != table.getCDDBDiscId():
                 logger.warning("AccurateRip response discid different: %s",
                                responses[0].cddbDiscId)
+
+        # Fast path: AccurateRip OffsetFindCRC at track 1 frame 450
+        # (discussion #691). One short window + in-memory sweep; fall
+        # back to full-track probe rips if this does not match.
+        if not getattr(self.options, 'no_frame450', False):
+            guess = configured if configured is not None else 0
+            try:
+                detected = offsetfind.detect_offset_frame450(
+                    runner, table, device, responses, offset_guess=guess)
+            except task.TaskException as e:
+                if isinstance(e.exception, common.MissingDependencyException):
+                    raise e
+                logger.warning('frame-450 offset find failed: %s', e)
+                detected = None
+            if detected is not None:
+                # Confirm with full-track AR checksums before saving
+                logger.info('frame-450 suggests offset %d, confirming...',
+                            detected)
+                try:
+                    archecksums = self._arcs(runner, table, 1, detected)
+                except task.TaskException as e:
+                    if isinstance(e.exception,
+                                  common.MissingDependencyException):
+                        raise e
+                    logger.warning('confirm rip at offset %d failed: %s',
+                                   detected, e)
+                    archecksums = None
+                if archecksums:
+                    def _match(archecksums, track, responses):
+                        for i, r in enumerate(responses):
+                            for checksum in archecksums:
+                                if checksum == r.checksums[track - 1]:
+                                    return checksum, i
+                        return None, None
+                    c, _i = _match(archecksums, 1, responses)
+                    if c:
+                        self._foundOffset(device, detected)
+                        return 0
+                    logger.warning(
+                        'frame-450 offset %d did not match AR track 1 '
+                        'checksum; falling back to probe list', detected)
 
         # now rip the first track at various offsets, calculating AccurateRip
         # CRC, and matching it against the retrieved ones

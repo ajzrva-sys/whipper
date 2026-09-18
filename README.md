@@ -268,6 +268,11 @@ list only. Regenerate the model table from a download of
 http://www.accuraterip.com/driveoffsets.htm with
 `misc/gen_drive_offsets.py` if needed.
 
+When the AccurateRip entry includes OffsetFindCRC data (Spoon spec:
+frame 450 of track 1), `offset find` first tries a short single-window
+sweep against those CRCs (discussion #691) and only falls back to
+full-track probe rips if that fails. Disable with `--no-frame450`.
+
 Optional pycdio (for parity with Linux offset-by-drive storage) can be
 built from source once `pkg-config`, `swig`, and `libcdio` are present:
 

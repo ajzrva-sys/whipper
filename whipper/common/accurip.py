@@ -67,21 +67,27 @@ class _AccurateRipResponse:
 
         self.confidences = []
         self.checksums = []
+        # Spoon AR spec: per-track OffsetFindCRC over frame 450 of track 1
+        # (bytes 5-8 of each 9-byte track record). Used for fast offset
+        # detection; discussion #691.
+        self.offsetfind_checksums = []
         pos = 13
         for _ in range(self.num_tracks):
             confidence = data[pos]
             checksum = "%08x" % struct.unpack("<L", data[pos + 1:pos + 5])[0]
+            offsetfind = "%08x" % struct.unpack("<L", data[pos + 5:pos + 9])[0]
             self.confidences.append(confidence)
             self.checksums.append(checksum)
+            self.offsetfind_checksums.append(offsetfind)
             pos += 9
 
     def __eq__(self, other):
         return [
             self.num_tracks, self.discId1, self.discId2, self.cddbDiscId,
-            self.confidences, self.checksums
+            self.confidences, self.checksums, self.offsetfind_checksums
         ] == [
             other.num_tracks, other.discId1, other.discId2, other.cddbDiscId,
-            other.confidences, other.checksums
+            other.confidences, other.checksums, other.offsetfind_checksums
         ]
 
 

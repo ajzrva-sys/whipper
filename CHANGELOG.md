@@ -22,6 +22,8 @@
   - `whipper offset find` tries AccurateRip-known offsets for the detected
     drive model first (e.g. Plextor PX-750A → +102), plus any configured
     read offset; disable with `--no-prioritize-known`
+  - `offset find` can use AccurateRip OffsetFindCRC (frame 450) as a fast
+    path before full-track probes (discussion #691); `--no-frame450` opts out
   - `PyGObject` and `pycdio` are optional install extras (CLI rips do not
     require them)
   - Enumerate all optical units via `camcontrol devlist` when pycdio is

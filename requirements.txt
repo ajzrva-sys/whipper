@@ -1,7 +1,10 @@
 musicbrainzngs
 mutagen
-pycdio>0.20
 ruamel.yaml
 setuptools_scm
 discid
 packaging
+# Optional: drive vendor/model via libcdio (FreeBSD: camcontrol fallback)
+# pycdio>0.20
+# Optional: not used by the CLI rip path
+# PyGObject

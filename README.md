@@ -172,19 +172,86 @@ pkg install python3 py312-pip cdrdao flac sox libdiscid \
 # pycdio is optional and not always packaged
 ```
 
-Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.
-`pycdio` is optional: without it, whipper falls back to FreeBSD
-`camcontrol inquiry` for vendor/model/release so `drive list` and rip
-logs still name the drive. You should still pass `--offset` (or set it
-in the config) when the offset is not stored for that identity.
-
-Build the `accuraterip` extension with ports headers visible:
+Build and install whipper (PyGObject and pycdio are **not** required
+for CLI rips):
 
 ```
 export CFLAGS="-I/usr/local/include"
 export LDFLAGS="-L/usr/local/lib"
+# optional extras: pip install '.[driveinfo]'  # pycdio
+#                 pip install '.[gobject]'    # PyGObject
 pip install .
 ```
+
+Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.
+On FreeBSD they are usually owned `root:operator` mode `640`. To rip
+as a non-root user:
+
+```
+pw groupmod operator -m youruser
+# or temporarily:
+chmod 666 /dev/cd0   # not recommended long-term
+```
+
+Whipper shells out to `camcontrol`, `eject`, `cdrdao`, `cd-paranoia`,
+`flac`, and `sox`. Ports install many of these under `/usr/local/bin`
+and `/usr/local/sbin`. Put both on `PATH` for the user (and any
+service wrapper) that runs whipper:
+
+```
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
+```
+
+If `/usr/local/sbin` is missing, tray close (`eject -t` fallback) can
+fail even when the FreeBSD `eject` package is installed.
+
+Non-root checklist on FreeBSD:
+
+```
+pw groupmod operator -m youruser
+# new login so group membership applies
+su - youruser
+export PATH="/opt/whipper/venv/bin:/usr/local/bin:/usr/local/sbin:$PATH"
+whipper drive list
+whipper cd -d /dev/cd0 info
+```
+
+Config for that user is written under `~/.config/whipper/whipper.conf`
+(offsets, drive identity) — it is **per-user**; root’s config is not
+shared. After `whipper offset find` as that user (or copy the drive
+section).
+
+Default FreeBSD node modes are not enough for non-root `camcontrol`:
+`/dev/cd0` is often `root:operator` `640`, but `/dev/xpt0` and
+`/dev/passN` are `600`. Group `operator` membership plus group RW on
+those nodes lets `camcontrol inquiry`/`devlist` work so drive identity
+is recorded without pycdio:
+
+```
+# runtime (lost on reboot)
+chgrp operator /dev/xpt0 /dev/pass* /dev/cd0
+chmod g+rw /dev/xpt0 /dev/pass* /dev/cd0
+```
+
+For persistence, add a `devfs` rule set for the `operator` group (see
+`devfs(8)` / `devfs.rules`) rather than hand-chmod after every boot.
+
+Multiple optical drives: when pycdio is missing, whipper enumerates
+units from `camcontrol devlist` (`cd0`, `cd1`, `acd0`, …) instead of
+only a short hardcoded list. `whipper drive list` shows every node;
+pass `-d /dev/cdN` to target one.
+
+Overread (`whipper cd rip -x`): stock FreeBSD `cd-paranoia` from
+ports often **does not** implement `--force-overread` (that flag comes
+from patched/whipper-oriented builds). whipper detects this, logs a
+warning, and rips **without** overread instead of failing. Lead-out
+samples beyond the last track may be missing; AccurateRip matching for
+the final track can still work if that track does not need overread.
+
+`pycdio` is optional: without it, whipper falls back to FreeBSD
+`camcontrol inquiry` for vendor/model/release so `drive list` and rip
+logs still name the drive. You should still pass `--offset` (or set it
+in the config) when the offset is not stored for that identity.
 
 Tray open/close prefers base-system `camcontrol load|eject <periph>`
 (e.g. `cd0`) on BSDs and falls back to `eject` / `eject -t`. Install
@@ -214,6 +281,8 @@ There is currently no FreeBSD quarterly package for pycdio.
 ### Optional dependencies
 - [Pillow](https://pypi.org/project/Pillow/), for completely supporting the cover art feature (`embed` and `complete` option values won't work otherwise).
 - [docutils](https://pypi.org/project/docutils/), to build the man pages.
+- [pycdio](https://pypi.org/project/pycdio/) (`pip install '.[driveinfo]'`), for libcdio-based drive vendor/model. Optional on FreeBSD (camcontrol fallback).
+- [PyGObject](https://pypi.org/project/PyGObject/) (`pip install '.[gobject]'`), not required for CLI rips.
 
 These dependencies are not listed in the `requirements.txt`. To install them, just issue the following command:
 

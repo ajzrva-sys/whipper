@@ -21,11 +21,10 @@ classifiers = [
 dependencies = [
     "musicbrainzngs",
     "mutagen",
-    "pycdio",
-    "PyGObject",
     "ruamel.yaml",
     "setuptools_scm",
     "discid",
+    "packaging",
 ]
 dynamic = ["version"]
 
@@ -35,6 +34,10 @@ Home = "https://github.com/whipper-team/whipper"
 [project.optional-dependencies]
 cover_art = ["pillow"]
 docs = ["docutils"]
+# Drive vendor/model via libcdio; optional on FreeBSD (camcontrol fallback)
+driveinfo = ["pycdio"]
+# Unused by the CLI rip path; not required to install or run whipper
+gobject = ["PyGObject"]
 
 [project.scripts]
 whipper = "whipper.command.main:main"

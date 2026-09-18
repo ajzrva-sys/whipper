@@ -22,6 +22,12 @@
   - `whipper offset find` tries AccurateRip-known offsets for the detected
     drive model first (e.g. Plextor PX-750A → +102), plus any configured
     read offset; disable with `--no-prioritize-known`
+  - `PyGObject` and `pycdio` are optional install extras (CLI rips do not
+    require them)
+  - Enumerate all optical units via `camcontrol devlist` when pycdio is
+    missing (multi-drive FreeBSD hosts)
+  - Detect missing cd-paranoia `--force-overread` and rip without overread
+    instead of failing (stock FreeBSD builds)
 
 ## [v0.10.0](https://github.com/whipper-team/whipper/tree/v0.10.0) (2021-05-17)
 

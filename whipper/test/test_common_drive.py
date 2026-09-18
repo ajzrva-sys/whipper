@@ -36,6 +36,46 @@ class StaticDevicePathsTestCase(common.TestCase):
             self.assertTrue(os.path.exists(path))
 
 
+class CamcontrolDevicePathsTestCase(common.TestCase):
+
+    _DEVLIST = (
+        "<WD_BLACK SN770 2TB>          at scbus0 target 0 lun 1 (pass0,nda0)\n"
+        "<PLEXTOR DVDR   PX-750A 1.02> at scbus1 target 0 lun 0 (cd0,pass1)\n"
+        "<HL-DT-ST DVDR GH24NSD1>      at scbus2 target 0 lun 0 (cd1,pass2)\n"
+        "<ATAPI DVD A>                 at scbus3 target 0 lun 0 (acd0,pass3)\n"
+    )
+
+    def test_parses_multiple_optical_units(self):
+        with mock.patch('whipper.common.drive.subprocess.check_output',
+                        return_value=self._DEVLIST.encode()), \
+             mock.patch('whipper.common.drive.os.path.exists',
+                        side_effect=lambda p: p.startswith('/dev/cd')
+                        or p.startswith('/dev/acd')):
+            paths = drive._getAllDevicePathsCamcontrol()
+        self.assertEqual(paths, ['/dev/cd0', '/dev/cd1', '/dev/acd0'])
+
+    def test_getAllDevicePaths_uses_camcontrol_off_linux(self):
+        with mock.patch.dict('sys.modules', {'cdio': None}), \
+             mock.patch('whipper.common.drive.sys.platform', 'freebsd15'), \
+             mock.patch.object(drive, '_getAllDevicePathsCamcontrol',
+                               return_value=['/dev/cd0', '/dev/cd1']) as cam, \
+             mock.patch.object(drive, '_getAllDevicePathsStatic') as static:
+            paths = drive.getAllDevicePaths()
+        self.assertEqual(paths, ['/dev/cd0', '/dev/cd1'])
+        cam.assert_called_once()
+        static.assert_not_called()
+
+    def test_falls_back_to_static_when_camcontrol_empty(self):
+        with mock.patch.dict('sys.modules', {'cdio': None}), \
+             mock.patch('whipper.common.drive.sys.platform', 'freebsd15'), \
+             mock.patch.object(drive, '_getAllDevicePathsCamcontrol',
+                               return_value=[]), \
+             mock.patch.object(drive, '_getAllDevicePathsStatic',
+                               return_value=['/dev/cd0']) as static:
+            self.assertEqual(drive.getAllDevicePaths(), ['/dev/cd0'])
+        static.assert_called_once()
+
+
 class CdromDriveStatusTestCase(common.TestCase):
 
     def test_linux_uses_ioctl(self):

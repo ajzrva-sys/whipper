@@ -270,7 +270,14 @@ class ReadTrackTask(task.Task):
         logger.debug('stopping at track %d, offset %d', stopTrack, stopOffset)
 
         bufsize = 1024
-        if self._overread:
+        overread = self._overread
+        if overread and not supports_force_overread():
+            logger.warning(
+                'cd-paranoia on this system does not document '
+                '--force-overread; rips will not overread into lead-out '
+                '(stock FreeBSD/libcdio-paranoia builds often lack it)')
+            overread = False
+        if overread:
             argv = ["cd-paranoia", "--stderr-progress",
                     "--sample-offset=%d" % self._offset, "--force-overread", ]
         else:
@@ -578,6 +585,27 @@ def getCdParanoiaVersion():
                                   "%(version)s %(release)s")
 
     return getter.get()
+
+
+def supports_force_overread():
+    """
+    True if the installed cd-paranoia documents --force-overread.
+
+    FreeBSD ports often ship stock libcdio-paranoia without the whipper/
+    patched overread flag (issue #686). Callers should warn and omit the
+    flag rather than abort the rip.
+    """
+    try:
+        proc = subprocess.run(
+            ['cd-paranoia', '-h'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.debug('cd-paranoia -h failed: %s', e)
+        return False
+    text = proc.stdout.decode(errors='replace') if proc.stdout else ''
+    return '--force-overread' in text or 'force-overread' in text
 
 
 _OK_RE = re.compile(r'Drive tests OK with Paranoia.')

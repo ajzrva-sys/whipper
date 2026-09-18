@@ -44,12 +44,19 @@ _STATIC_DEVICE_CANDIDATES = (
     '/dev/cdrecorder',
     '/dev/cd0',
     '/dev/cd1',
+    '/dev/cd2',
+    '/dev/cd3',
     '/dev/acd0',
+    '/dev/acd1',
 )
 
 # FreeBSD camcontrol inquiry: pass1: <PLEXTOR DVDR   PX-750A 1.02> ...
 _CAMCONTROL_INQUIRY_RE = re.compile(
     r'<(?P<vendor>\S+)\s+(?P<model>\S.*?)\s+(?P<release>[\w.+-]+)>')
+
+# camcontrol devlist unit list: "… (cd0,pass1)" / "… (acd0,pass2)"
+_CAMCONTROL_DEVLIST_UNITS_RE = re.compile(r'\((?P<units>[^)]+)\)')
+_CAMCONTROL_OPTICAL_UNIT_RE = re.compile(r'^(?:cd|acd)\d+$')
 
 
 def _listify(listOrString):
@@ -65,7 +72,11 @@ def getAllDevicePaths():
         return [str(dev) for dev in _getAllDevicePathsPyCdio()]
     except ImportError:
         logger.info('cannot import pycdio')
-        return _getAllDevicePathsStatic()
+    if not sys.platform.startswith('linux'):
+        found = _getAllDevicePathsCamcontrol()
+        if found:
+            return found
+    return _getAllDevicePathsStatic()
 
 
 def _getAllDevicePathsPyCdio():
@@ -86,6 +97,34 @@ def _getAllDevicePathsStatic():
             ret.append(c)
 
     return ret
+
+
+def _getAllDevicePathsCamcontrol():
+    """
+    List optical device nodes via FreeBSD camcontrol devlist.
+
+    Discovers every cdN/acdN unit, not just a hardcoded short list
+    (issue #686 multi-drive). Returns [] if camcontrol is unavailable.
+    """
+    try:
+        out = subprocess.check_output(
+            ['camcontrol', 'devlist'],
+            stderr=subprocess.DEVNULL).decode(errors='replace')
+    except (OSError, subprocess.CalledProcessError) as e:
+        logger.debug('camcontrol devlist failed: %s', e)
+        return []
+
+    paths = []
+    for match in _CAMCONTROL_DEVLIST_UNITS_RE.finditer(out):
+        for unit in match.group('units').split(','):
+            unit = unit.strip()
+            if not _CAMCONTROL_OPTICAL_UNIT_RE.match(unit):
+                continue
+            path = '/dev/%s' % unit
+            if os.path.exists(path) and path not in paths:
+                paths.append(path)
+    logger.debug('camcontrol optical devices: %r', paths)
+    return paths
 
 
 def _getDeviceInfoCamcontrol(path):

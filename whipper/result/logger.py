@@ -45,11 +45,18 @@ class WhipperLogger(result.Logger):
 
         * ``clean`` — no non-routine callbacks
         * ``corrections only`` — re-reads/patches; usually not lossy
-        * ``severe errors (possibly lossy)`` — skip/transport/scsi failures
+        * ``severe recoverable errors`` — transport/cache errors that
+          paranoia may have corrected (progress bar 'e')
+        * ``definitely lossy (uncorrected/skipped): …`` — skip/scratch/
+          scsi_read error (progress bar 'V'); CRC match does not prove
+          the audio is correct
         """
+        if lossy_names:
+            return "definitely lossy (uncorrected/skipped): %s" % (
+                ', '.join(lossy_names),)
         if severe:
-            names = ', '.join(lossy_names) if lossy_names else 'severe'
-            return "severe errors (possibly lossy): %s" % names
+            return ("severe recoverable errors "
+                    "(transport/cache; verify against AccurateRip)")
         if corrections:
             return "corrections only"
         return "clean"
@@ -180,11 +187,15 @@ class WhipperLogger(result.Logger):
             sorted(self._cdparanoiaLossyNames or []),
         )
 
-        # Health status (issue #294):
+        # Health status (issue #294), using libcdio-paranoia semantics:
         # - CRC mismatch always means errors.
-        # - Severe cdparanoia events (skip / transport error / scsi_read
-        #   error) can be lossy even when test and copy CRCs match, because
-        #   both passes may agree on the same bad fill. Treat as errors.
+        # - Definitely-lossy events (skip / scratch / scsi_read error;
+        #   progress bar 'V') can be wrong even when test and copy CRCs
+        #   match, because both passes may agree on the same bad fill.
+        #   Treat as errors.
+        # - Severe recoverable events (transport error / cache error;
+        #   progress bar 'e') still force "There were errors" so archival
+        #   users notice; AccurateRip can confirm the result.
         # - Corrections-only rips usually recover; keep "No errors occurred"
         #   for compatibility. Event counts and suspicious positions remain
         #   on each track; see also "cdparanoia health" above.
@@ -330,10 +341,14 @@ class WhipperLogger(result.Logger):
             self._skippedTracks = True
         # Check if Test & Copy CRCs are equal
         elif trackResult.testcrc == trackResult.copycrc:
-            if severe:
+            if lossy_names:
                 track["Status"] = (
-                    "Copy OK (cdparanoia reported severe errors: %s)" %
+                    "Copy OK (WARNING: uncorrected/skipped sectors: %s)" %
                     ', '.join(lossy_names))
+            elif severe:
+                track["Status"] = (
+                    "Copy OK (cdparanoia reported severe recoverable "
+                    "errors)")
             else:
                 track["Status"] = "Copy OK"
         else:

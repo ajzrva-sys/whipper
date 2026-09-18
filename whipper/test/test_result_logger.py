@@ -230,10 +230,10 @@ class LoggerTestCase(unittest.TestCase):
         self.assertIn("00:01:15 - 00:01:16", log)
         self.assertIn("01:00:00 - 01:00:10", log)
         # matching CRCs but severe cdparanoia errors reported
-        self.assertIn("Copy OK (cdparanoia reported severe errors", log)
+        self.assertIn("Copy OK (WARNING: uncorrected/skipped sectors", log)
         self.assertIn("Health status: There were errors", log)
         self.assertIn("cdparanoia health:", log)
-        self.assertIn("possibly lossy", log)
+        self.assertIn("definitely lossy", log)
 
     def testLoggerCorrectionsOnlyHealth(self):
         """Corrections without severe events keep 'No errors occurred'."""
@@ -288,14 +288,67 @@ class LoggerTestCase(unittest.TestCase):
             "read": 10,
             "jitter": 5,
             "skip": 2,
+            "scratch": 1,
             "transport error": 1,
             "scsi_read error": 3,
+            "drift": 2,
             "unknown_event": 4,
         })
-        self.assertEqual(severe, 2 + 1 + 3)
-        self.assertEqual(corrections, 5 + 4)
-        self.assertEqual(lossy,
-                         ["scsi_read error", "skip", "transport error"])
+        # skip + scratch + transport + scsi
+        self.assertEqual(severe, 2 + 1 + 1 + 3)
+        # jitter + drift + unknown
+        self.assertEqual(corrections, 5 + 2 + 4)
+        # only definitely-lossy names (alphabetical)
+        self.assertEqual(lossy, ["scratch", "scsi_read error", "skip"])
+
+    def testClassifyTransportErrorNotInLossyNames(self):
+        """#294: transport error may be recovered ('e' in progress bar)."""
+        from whipper.program.cdparanoia import classify_cdparanoia_events
+        severe, corrections, lossy = classify_cdparanoia_events(
+            {"transport error": 2})
+        self.assertEqual(severe, 2)
+        self.assertEqual(corrections, 0)
+        self.assertEqual(lossy, [])
+
+    def testLoggerTransportErrorOnlyHealth(self):
+        """Severe recoverable events still set 'There were errors'."""
+        ripResult = RipResult()
+        ripResult.offset = 0
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "A"
+        ripResult.title = "T"
+        ripResult.vendor = "V"
+        ripResult.model = "M"
+        ripResult.release = "1"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01.flac"
+        trackResult.peak = 1000
+        trackResult.quality = 1
+        trackResult.copyspeed = 2.0
+        trackResult.testduration = 1
+        trackResult.copyduration = 1
+        trackResult.testcrc = 0x22222222
+        trackResult.copycrc = 0x22222222
+        trackResult.cdparanoiaEvents = {"transport error": 2}
+        trackResult.suspiciousPositions = [(5, 6)]
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+
+        log = WhipperLogger().log(ripResult, epoch=0)
+        self.assertIn("Health status: There were errors", log)
+        self.assertIn("cdparanoia health: severe recoverable errors", log)
+        self.assertIn("Copy OK (cdparanoia reported severe recoverable",
+                      log)
 
     def testLoggerCleanTrackStatusUnchanged(self):
         ripResult = RipResult()

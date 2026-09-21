@@ -31,6 +31,7 @@ from whipper.common import (
 from whipper.common import common
 from whipper.common.common import (
     align_track_path,
+    truncate_filename,
     validate_template,
 )
 from whipper.program import cdrdao, cdparanoia, utils
@@ -468,6 +469,9 @@ Log files will log the path to tracks relative to this directory.
                                         self.mbdiscid,
                                         self.program.metadata,
                                         track_number=number) + '.flac'
+            # Issue #453: keep the final component under NAME_MAX after
+            # appending the audio extension.
+            path = truncate_filename(path)
             # Issue #692: keep tracks inside the disc folder even when
             # --track-template has no directory prefix matching --disc-template.
             aligned_path, aligned = align_track_path(

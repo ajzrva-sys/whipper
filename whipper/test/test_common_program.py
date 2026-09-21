@@ -69,6 +69,31 @@ class PathTestCase(unittest.TestCase):
         path = prog.getPath('/tmp', '%A/%M-%N', 'mbdiscid', md)
         self.assertEqual(path, '/tmp/Jeff Buckley/1-1')
 
+    def testIssue453LongTitlesTruncated(self):
+        """#453: extremely long release titles must not exceed NAME_MAX."""
+        prog = program.Program(config.Config())
+        md = mbngs.DiscMetadata()
+        md.artist = md.sortName = 'Soulwax'
+        # Path length that historically raised ENAMETOOLONG
+        md.releaseTitle = (
+            "Most of the remixes we've made for other people over the "
+            "years except for the one for Einstürzende Neubauten because "
+            "we lost it and a few we didn't think sounded good enough "
+            "or just didn't fit in length-wise, but including some that "
+            "are hard to find because either people forgot about them or "
+            "just simply because they haven't been released yet"
+        )
+        md.title = md.releaseTitle
+        path = prog.getPath('/tmp', '%A - %d/%A - %d',
+                            'mbdiscid', md, 0)
+        for part in path.split(os.sep):
+            if part:
+                self.assertLessEqual(len(part.encode('utf-8')), 255)
+        self.assertTrue(path.startswith('/tmp/Soulwax'))
+        # Adding extensions must stay within NAME_MAX too
+        flac = path + '.flac'
+        self.assertLessEqual(len(os.path.basename(flac).encode('utf-8')), 255)
+
 
 # TODO: Test cover art embedding too.
 class CoverArtTestCase(unittest.TestCase):

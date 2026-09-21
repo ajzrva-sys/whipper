@@ -212,7 +212,12 @@ def verify_result(result, responses, checksums):
 
 
 def print_report(result):
-    """Print AccurateRip verification results."""
+    """Print AccurateRip verification results.
+
+    The DB column shows the matched AccurateRip CRCs when a track is
+    accurate. When it is not, DB shows the highest-confidence CRC present
+    in the queried database entry (which did not match this rip).
+    """
     for _, track in enumerate(result.tracks):
         status = 'rip NOT accurate'
         conf = '(not found)'

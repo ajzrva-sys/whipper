@@ -192,10 +192,19 @@ class Program:
 
         assert itable.hasTOC()
 
+        sane, reason = itable.hasSaneTOC()
+        if not sane:
+            # Issue #583: cdrdao occasionally produces a corrupt TOC
+            # (non-monotonic track offsets / absurd leadout) which used to
+            # crash later inside libdiscid with "Disc too long".
+            raise RuntimeError(
+                'cdrdao produced an invalid TOC (%s); try re-reading the '
+                'disc or checking the drive/media' % reason)
+
         self.result.table = itable
 
-        logger.debug('getTable: returning table with mb id %s',
-                     itable.getMusicBrainzDiscId())
+        mbdiscid = itable.getMusicBrainzDiscId()
+        logger.debug('getTable: returning table with mb id %s', mbdiscid)
         return itable
 
     def getRipResult(self):
@@ -773,7 +782,8 @@ class Program:
             logger.error(verifytask.exceptionMessage)
             return False
 
-        responses = accurip.get_db_entry(table.accuraterip_path())
+        ar_path = self._accuraterip_path(cueImage, table)
+        responses = accurip.get_db_entry(ar_path)
         logger.info('%d AccurateRip response(s) found', len(responses))
 
         # Issue #550: tracks from generic TOCs may have a null FILE path
@@ -795,6 +805,23 @@ class Program:
             return False
 
         return accurip.verify_result(self.result, responses, checksums)
+
+    @staticmethod
+    def _accuraterip_path(cueImage, table):
+        """
+        Choose the AccurateRip database entry to query.
+
+        Prefer the path recorded in the .cue at rip time so verify hits the
+        same entry the rip used, even if the reconstructed TOC offsets differ
+        (issue #677). Fall back to computing it from the given table.
+        """
+        recorded = getattr(cueImage, 'accuraterip_path', None)
+        if recorded:
+            logger.debug('using AccurateRip path from cue: %s', recorded)
+            return recorded
+        path = table.accuraterip_path()
+        logger.debug('using AccurateRip path from table: %s', path)
+        return path
 
     def write_m3u(self, discname):
         m3uPath = common.truncate_filename(discname + '.m3u')

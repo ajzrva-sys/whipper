@@ -2,11 +2,12 @@ from __future__ import print_function
 import hashlib
 import os
 import re
+import tempfile
 import unittest
 
 from whipper.common.yaml import YAML
 from whipper.result.result import TrackResult, RipResult
-from whipper.result.logger import WhipperLogger
+from whipper.result.logger import WhipperLogger, is_complete_rip_log
 
 
 class MockImageTrack:
@@ -178,6 +179,102 @@ class LoggerTestCase(unittest.TestCase):
             hashlib.sha256(log_body).hexdigest().upper()
         )
 
+
+class CompleteRipLogTestCase(unittest.TestCase):
+    """Issue #352: only complete whipper logs count as finished rips."""
+
+    COMPLETE = """Log created by: whipper 0.10.0 (internal logger)
+Log creation date: 2020-01-01T00:00:00Z
+
+Conclusive status report:
+  AccurateRip summary: All tracks accurately ripped
+  Health status: No errors occurred
+  EOF: End of status report
+
+SHA-256 hash: DEADBEEF
+"""
+
+    def _write(self, content):
+        fd, path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
+        if content is not None:
+            with open(path, 'w') as handle:
+                handle.write(content)
+        else:
+            os.unlink(path)
+        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        return path
+
+    def testCompleteLogIsFinished(self):
+        path = self._write(self.COMPLETE)
+        self.assertTrue(is_complete_rip_log(path))
+
+    def testEmptyLogIsNotFinished(self):
+        path = self._write('')
+        self.assertFalse(is_complete_rip_log(path))
+
+    def testMissingPathIsNotFinished(self):
+        self.assertFalse(is_complete_rip_log('/nonexistent/rip.log'))
+        self.assertFalse(is_complete_rip_log(None))
+        self.assertFalse(is_complete_rip_log(''))
+
+    def testTruncatedLogWithoutEndMarkersIsNotFinished(self):
+        partial = """Log created by: whipper 0.10.0 (internal logger)
+Log creation date: 2020-01-01T00:00:00Z
+
+Conclusive status report:
+  AccurateRip summary: ...
+"""
+        path = self._write(partial)
+        self.assertFalse(is_complete_rip_log(path))
+
+    def testForeignLogFileIsNotFinished(self):
+        path = self._write('INFO:whipper.command.cd:checking device\n')
+        self.assertFalse(is_complete_rip_log(path))
+
+    def testFixtureCompleteLogIsFinished(self):
+        fixture = os.path.join(os.path.dirname(__file__),
+                               'test_result_logger.log')
+        self.assertTrue(is_complete_rip_log(fixture))
+
+    def testGeneratedLogIsFinished(self):
+        """A log produced by WhipperLogger must pass the completeness check."""
+        ripResult = RipResult()
+        ripResult.offset = 0
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "Artist"
+        ripResult.title = "Title"
+        ripResult.vendor = "VEN"
+        ripResult.model = "MOD"
+        ripResult.release = "1.0"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01.flac"
+        trackResult.peak = 1000
+        trackResult.quality = 1
+        trackResult.copyspeed = 1.0
+        trackResult.testduration = 1
+        trackResult.copyduration = 1
+        trackResult.testcrc = 0x1
+        trackResult.copycrc = 0x1
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+        log_text = WhipperLogger().log(ripResult, epoch=0)
+        path = self._write(log_text)
+        self.assertTrue(is_complete_rip_log(path))
+
+
+class CdparanoiaEventsTestCase(unittest.TestCase):
+    """Tests for cdparanoia event reporting in the rip log."""
+
     def testLoggerReportsCdparanoiaErrors(self):
         """Suspicious positions and non-fatal events appear in the log."""
         ripResult = RipResult()
@@ -244,44 +341,6 @@ class LoggerTestCase(unittest.TestCase):
         self.assertEqual(corrections, 4)
         self.assertEqual(lossy, [])
 
-        ripResult = RipResult()
-        ripResult.offset = 0
-        ripResult.overread = False
-        ripResult.isCdr = False
-        ripResult.table = MockImageTable()
-        ripResult.artist = "A"
-        ripResult.title = "T"
-        ripResult.vendor = "V"
-        ripResult.model = "M"
-        ripResult.release = "1"
-        ripResult.cdrdaoVersion = "1.2.4"
-        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
-        ripResult.cdparanoiaDefeatsCache = True
-
-        trackResult = TrackResult()
-        trackResult.number = 1
-        trackResult.filename = "./01.flac"
-        trackResult.peak = 1000
-        trackResult.quality = 0.95
-        trackResult.copyspeed = 2.0
-        trackResult.testduration = 1
-        trackResult.copyduration = 1
-        trackResult.testcrc = 0x11111111
-        trackResult.copycrc = 0x11111111
-        trackResult.cdparanoiaEvents = {"jitter": 3, "overlap": 1}
-        trackResult.suspiciousPositions = [(10, 12)]
-        trackResult.AR = {
-            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
-            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
-        }
-        ripResult.tracks.append(trackResult)
-
-        log = WhipperLogger().log(ripResult, epoch=0)
-        self.assertIn("Health status: No errors occurred", log)
-        self.assertIn("cdparanoia health: corrections only", log)
-        self.assertIn("Status: Copy OK\n", log)
-        self.assertIn("Suspicious positions:", log)
-
     def testClassifyCdparanoiaEvents(self):
         from whipper.program.cdparanoia import classify_cdparanoia_events
         severe, corrections, lossy = classify_cdparanoia_events({
@@ -330,7 +389,7 @@ class LoggerTestCase(unittest.TestCase):
         trackResult.number = 1
         trackResult.filename = "./01.flac"
         trackResult.peak = 1000
-        trackResult.quality = 1
+        trackResult.quality = 0.95
         trackResult.copyspeed = 2.0
         trackResult.testduration = 1
         trackResult.copyduration = 1

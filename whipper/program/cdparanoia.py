@@ -514,7 +514,8 @@ class ReadTrackTask(task.Task):
             self.schedule(0.01, self._read, runner)
             return
 
-        self._buffer += ret.decode()
+        # Issue #654: damaged discs / odd drive strings can be non-UTF-8
+        self._buffer += ret.decode('utf-8', errors='replace')
 
         # parse buffer into lines if possible, and parse them
         if "\n" in self._buffer:

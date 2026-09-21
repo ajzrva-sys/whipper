@@ -513,6 +513,15 @@ class Program:
         releaseArtist = 'Unknown Artist'
         album = 'Unknown Album'
         title = 'Unknown Track'
+        mbidRelease = None
+        mbidReleaseGroup = None
+        mbidReleaseArtist = None
+        mbidRecording = None
+        mbidTrack = None
+        mbidTrackArtist = None
+        mbidWorks = []
+        composers = []
+        performers = []
 
         if self.metadata:
             trackArtist = self.metadata.artist
@@ -537,15 +546,20 @@ class Program:
                     logger.error('no track %d found, %r', number, e)
                     raise
             else:
-                # htoa defaults to disc's artist
+                # HTOA: use disc artist; prefer an explicit hidden-track
+                # title from MusicBrainz when present (#485)
                 title = 'Hidden Track One Audio'
+                htoa_title = getattr(self.metadata, 'htoaTitle', None)
+                if htoa_title:
+                    title = htoa_title
 
         tags = {}
 
-        if number > 0:
-            tags['MUSICBRAINZ_DISCID'] = mbdiscid
-
+        # Issue #485: HTOA (track 0) previously omitted all MusicBrainz IDs,
+        # so media players treated it as a separate disc. Always tag disc id
+        # and album-level MBIDs; track-level IDs stay on real tracks.
         if self.metadata:
+            tags['MUSICBRAINZ_DISCID'] = mbdiscid
             tags['ALBUMARTIST'] = releaseArtist
         tags['ARTIST'] = trackArtist
         tags['TITLE'] = title
@@ -562,19 +576,27 @@ class Program:
                 tags['DISCTOTAL'] = str(self.metadata.discTotal)
             if self.metadata.discNumber is not None:
                 tags['DISCNUMBER'] = str(self.metadata.discNumber)
+            # Issue #309: MusicBrainz genres
+            genres = getattr(self.metadata, 'genres', None) or []
+            if genres:
+                tags['GENRE'] = genres
+
+            if mbidRelease:
+                tags['MUSICBRAINZ_ALBUMID'] = mbidRelease
+            if mbidReleaseGroup:
+                tags['MUSICBRAINZ_RELEASEGROUPID'] = mbidReleaseGroup
+            if mbidReleaseArtist:
+                tags['MUSICBRAINZ_ALBUMARTISTID'] = mbidReleaseArtist
 
             if number > 0:
                 tags['MUSICBRAINZ_RELEASETRACKID'] = mbidTrack
                 tags['MUSICBRAINZ_TRACKID'] = mbidRecording
                 tags['MUSICBRAINZ_ARTISTID'] = mbidTrackArtist
-                tags['MUSICBRAINZ_ALBUMID'] = mbidRelease
-                tags['MUSICBRAINZ_RELEASEGROUPID'] = mbidReleaseGroup
-                tags['MUSICBRAINZ_ALBUMARTISTID'] = mbidReleaseArtist
-                if len(mbidWorks) > 0:
+                if mbidWorks:
                     tags['MUSICBRAINZ_WORKID'] = mbidWorks
-                if len(composers) > 0:
+                if composers:
                     tags['COMPOSER'] = composers
-                if len(performers) > 0:
+                if performers:
                     tags['PERFORMER'] = performers
 
         return tags

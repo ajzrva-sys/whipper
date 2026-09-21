@@ -85,16 +85,34 @@ class BaseCommand:
                                      help=argparse.SUPPRESS)
 
         if self.device_option:
-            # Default to the first drive when present. Missing drives must
-            # not prevent --help (issue #164); real commands still fail
-            # later if no device is available.
+            # pick the first drive as default; config may override (#346)
+            # Missing drives must not prevent --help (issue #164); real
+            # commands still fail later if no device is available.
             drives = drive.getAllDevicePaths()
             default_device = drives[0] if drives else None
+            config_device = None
+            try:
+                cfg = config.Config()
+                config_device = cfg.get(config_section, 'device')
+                if not config_device:
+                    # global default: [main] device / helper (#346)
+                    config_device = cfg.getDefaultDevice()
+            except Exception as e:
+                logger.debug('could not read default device from config: %r',
+                             e)
+            if config_device:
+                default_device = config_device
+                logger.debug('default device from config: %r', default_device)
+            elif not drives:
+                default_device = None
             self.parser.add_argument('-d', '--device',
                                      action="store",
                                      dest="device",
                                      default=default_device,
-                                     help="CD-DA device")
+                                     help="CD-DA device (default: first "
+                                          "drive, or [main] device / "
+                                          "command-section device in the "
+                                          "config file)")
 
         self.options = self.parser.parse_args(argv, namespace=opts)
 

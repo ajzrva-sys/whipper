@@ -285,6 +285,66 @@ def validate_template(template, kind):
                          'variable(s): {}'.format(', '.join(matches)))
 
 
+def path_is_within(path, directory):
+    """
+    Return True if ``path`` lives inside ``directory`` (not equal to it).
+
+    :param path: file or directory path
+    :type  path: str
+    :param directory: parent directory path
+    :type  directory: str
+    :rtype: bool
+    """
+    if not path or not directory:
+        return False
+    path = os.path.abspath(path)
+    directory = os.path.abspath(directory)
+    if path == directory:
+        return False
+    try:
+        return os.path.commonpath([path, directory]) == directory
+    except ValueError:
+        # e.g. different drives on Windows
+        return False
+
+
+def align_track_path(track_path, disc_name, track_template):
+    """
+    Place a track file inside the disc output directory (issue #692).
+
+    ``--track-template`` is expanded against the output directory, not the
+    disc-template folder. When the track template has no directory prefix
+    (or expands somewhere else), tracks must still land next to the disc
+    .cue/.log files or the rip fails when writing.
+
+    :param track_path: expanded track path from getPath()
+    :type  track_path: str
+    :param disc_name: expanded disc path (no extension) from getPath()
+    :type  disc_name: str
+    :param track_template: the user-supplied track template string
+    :type  track_template: str
+    :returns: ``(path, aligned)`` — possibly rewritten path, and whether
+              it was moved into the disc directory
+    :rtype: tuple(str, bool)
+    """
+    disc_dir = os.path.dirname(disc_name) if disc_name else ''
+    if not disc_dir or not track_path:
+        return track_path, False
+    if path_is_within(track_path, disc_dir):
+        return track_path, False
+
+    template_norm = (track_template or '').replace('\\', '/').strip('/')
+    if '/' not in template_norm:
+        # e.g. "%t. %n" — only a filename component
+        return os.path.join(disc_dir, os.path.basename(track_path)), True
+
+    # Hierarchical track template that does not expand under the disc
+    # folder: re-root the basename under the disc directory and warn.
+    # Keeping full template-relative paths here would invent nested dirs
+    # outside the disc folder (or double-nest default templates).
+    return os.path.join(disc_dir, os.path.basename(track_path)), True
+
+
 class VersionGetter:
     """
     Get the version of a program.

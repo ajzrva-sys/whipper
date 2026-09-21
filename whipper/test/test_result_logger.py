@@ -2,11 +2,12 @@ from __future__ import print_function
 import hashlib
 import os
 import re
+import tempfile
 import unittest
 
 from whipper.common.yaml import YAML
 from whipper.result.result import TrackResult, RipResult
-from whipper.result.logger import WhipperLogger
+from whipper.result.logger import WhipperLogger, is_complete_rip_log
 
 
 class MockImageTrack:

@@ -1,12 +1,14 @@
 # Change Log
 
-## [Unreleased](https://github.com/whipper-team/whipper/tree/HEAD)
+## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) — Community fork release
 
-[Full Changelog](https://github.com/whipper-team/whipper/compare/v0.10.0...HEAD)
+[Full Changelog](https://github.com/ajzrva-sys/whipper/compare/v0.10.0...v0.11.0)
+
+Community release bundling 13 open PRs from upstream. Hardware-tested on FreeBSD 15.1 with a Plextor PX-750A.
 
 **Implemented enhancements:**
 
-- Patches to run whipper on FreeBSD [\#686](https://github.com/whipper-team/whipper/issues/686)
+- **FreeBSD support** [\#686](https://github.com/whipper-team/whipper/issues/686) [\#712](https://github.com/whipper-team/whipper/pull/712)
   - Skip Linux-only `CDROM_DRIVE_STATUS` ioctl on non-Linux platforms
   - Detect mounts via `mount(8)` instead of `/proc/mounts` on BSDs
   - Fallback device nodes include `/dev/cd0` and `/dev/acd0`
@@ -30,6 +32,11 @@
     missing (multi-drive FreeBSD hosts)
   - Detect missing cd-paranoia `--force-overread` and rip without overread
     instead of failing (stock FreeBSD builds)
+- **Pre-emphasis flag reporting** [\#296](https://github.com/whipper-team/whipper/issues/296) [\#710](https://github.com/whipper-team/whipper/pull/710)
+- **HTOA improvements** (skip-htoa, default device, genres, MusicBrainz tags) [\#282](https://github.com/whipper-team/whipper/issues/282) [\#485](https://github.com/whipper-team/whipper/issues/485) [\#346](https://github.com/whipper-team/whipper/issues/346) [\#309](https://github.com/whipper-team/whipper/issues/309) [\#709](https://github.com/whipper-team/whipper/pull/709)
+- **Allow `--help` without a CD-DA drive** [\#164](https://github.com/whipper-team/whipper/issues/164) [\#703](https://github.com/whipper-team/whipper/pull/703)
+- **Truncate long path components** for MusicBrainz titles [\#453](https://github.com/whipper-team/whipper/issues/453) [\#706](https://github.com/whipper-team/whipper/pull/706)
+- **Cdparanoia error reporting** in rip logs (events, suspicious positions, health classification) [\#294](https://github.com/whipper-team/whipper/issues/294) [\#701](https://github.com/whipper-team/whipper/pull/701)
 
 **Fixed bugs:**
 
@@ -37,6 +44,12 @@
 - whipper completely stops when one track is faulty [\#560](https://github.com/whipper-team/whipper/issues/560)
 - TOCError: Disc too long [\#583](https://github.com/whipper-team/whipper/issues/583)
 - AccurateRip disagreement between initial rip and image verify [\#677](https://github.com/whipper-team/whipper/issues/677)
+- Rip resume CRC check and cue FILE KeyError [\#681](https://github.com/whipper-team/whipper/issues/681) [\#508](https://github.com/whipper-team/whipper/issues/508) [\#707](https://github.com/whipper-team/whipper/pull/707)
+- Guard TOC decode, missing cdrdao output, and None FILE paths [\#239](https://github.com/whipper-team/whipper/issues/239) [\#550](https://github.com/whipper-team/whipper/issues/550) [\#594](https://github.com/whipper-team/whipper/issues/594) [\#654](https://github.com/whipper-team/whipper/issues/654) [\#708](https://github.com/whipper-team/whipper/pull/708)
+- Guard CD-R eject and peak/quality crashes [\#619](https://github.com/whipper-team/whipper/issues/619) [\#601](https://github.com/whipper-team/whipper/issues/601) [\#621](https://github.com/whipper-team/whipper/issues/621) [\#705](https://github.com/whipper-team/whipper/pull/705)
+- Only treat complete whipper logs as finished rips [\#352](https://github.com/whipper-team/whipper/issues/352) [\#704](https://github.com/whipper-team/whipper/pull/704)
+- Fix crash bugs: template KeyError, analyze TypeError, cover art API [\#585](https://github.com/whipper-team/whipper/issues/585) [\#608](https://github.com/whipper-team/whipper/issues/608) [\#554](https://github.com/whipper-team/whipper/issues/554) [\#700](https://github.com/whipper-team/whipper/pull/700)
+- Keep tracks under the disc directory and surface rip retry errors [\#692](https://github.com/whipper-team/whipper/issues/692) [\#702](https://github.com/whipper-team/whipper/pull/702)
 
 **Changes:**
 

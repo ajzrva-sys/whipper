@@ -72,7 +72,40 @@ For detailed information, please check the commit history.
 
 ## Installation
 
-Whipper still isn't available as an official package in every Linux distributions so, in order to use it, it may be necessary to [build it from its source code](#building).
+This is the **v0.11.0 community fork** which bundles 13 PRs not yet merged upstream, including full FreeBSD support, crash fixes, pre-emphasis reporting, HTOA improvements, and more. See [CHANGELOG.md](CHANGELOG.md) for the full list.
+
+### Quick install from this fork (pip)
+
+Install directly from the GitHub release tarball (no local clone needed):
+
+```bash
+# Linux — install with all optional extras
+pip install 'whipper[driveinfo,gobject,cover_art] @ https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
+
+# FreeBSD — minimal CLI install (pycdio and PyGObject are optional)
+CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" \
+  pip install 'https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
+```
+
+Or install from a local clone:
+
+```bash
+git clone -b release/v0.11.0 https://github.com/ajzrva-sys/whipper.git
+cd whipper
+pip install '.[driveinfo,gobject,cover_art]'   # Linux
+# or:  pip install .                             # FreeBSD minimal
+```
+
+Verify the install:
+
+```bash
+whipper --version
+whipper drive list
+```
+
+### Upstream (whipper-team/whipper)
+
+Whipper still isn't available as an official package in every Linux distribution so, in order to use it, it may be necessary to [build it from its source code](#building).
 
 ### Docker
 

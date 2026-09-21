@@ -592,9 +592,19 @@ class ReadTrackTask(task.Task):
         self.suspiciousPositions = self._parser.getSuspiciousPositions()
         self._report_cdparanoia_errors()
 
-        self.quality = self._parser.getTrackQuality()
+        # Issue #621: quality/speed must not ZeroDivision-crash a finished
+        # (or empty) rip; log and fall back instead.
+        try:
+            self.quality = self._parser.getTrackQuality()
+        except RuntimeError as e:
+            logger.warning('could not compute track quality: %s', e)
+            self.quality = 0.0
         self.duration = end_time - self._start_time
-        self.speed = (offsetLength / 75.0) / self.duration
+        if self.duration and self.duration > 0:
+            self.speed = (offsetLength / 75.0) / self.duration
+        else:
+            logger.warning('rip duration was zero; speed set to 0')
+            self.speed = 0.0
 
         self.stop()
         return

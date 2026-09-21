@@ -2,12 +2,11 @@ from __future__ import print_function
 import hashlib
 import os
 import re
-import tempfile
 import unittest
 
 from whipper.common.yaml import YAML
 from whipper.result.result import TrackResult, RipResult
-from whipper.result.logger import WhipperLogger, is_complete_rip_log
+from whipper.result.logger import WhipperLogger
 
 
 class MockImageTrack:
@@ -180,6 +179,76 @@ class LoggerTestCase(unittest.TestCase):
         )
 
 
+class PeakQualityGuardTestCase(unittest.TestCase):
+    """Issues #601 / #621: None peak and missing quality must not crash."""
+
+    def testLoggerPeakNone(self):
+        ripResult = RipResult()
+        ripResult.offset = 0
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "Artist"
+        ripResult.title = "Title"
+        ripResult.vendor = "VEN"
+        ripResult.model = "MOD"
+        ripResult.release = "1"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01.flac"
+        trackResult.peak = None  # soxi failed / skipped track
+        trackResult.quality = None
+        trackResult.testduration = 1
+        trackResult.copyduration = 1
+        trackResult.testcrc = 0x1
+        trackResult.copycrc = 0x1
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+        log = WhipperLogger().log(ripResult, epoch=0)
+        self.assertIn("Peak level:", log)
+        self.assertIn("Peak level:\n", log)
+        self.assertNotIn("Extraction quality", log)
+
+    def testLoggerNormalPeakStillWorks(self):
+        ripResult = RipResult()
+        ripResult.offset = 0
+        ripResult.overread = False
+        ripResult.isCdr = False
+        ripResult.table = MockImageTable()
+        ripResult.artist = "Artist"
+        ripResult.title = "Title"
+        ripResult.vendor = "VEN"
+        ripResult.model = "MOD"
+        ripResult.release = "1"
+        ripResult.cdrdaoVersion = "1.2.4"
+        ripResult.cdparanoiaVersion = "cdparanoia III 10.2"
+        ripResult.cdparanoiaDefeatsCache = True
+        trackResult = TrackResult()
+        trackResult.number = 1
+        trackResult.filename = "./01.flac"
+        trackResult.peak = 32768
+        trackResult.quality = 1.0
+        trackResult.copyspeed = 2.0
+        trackResult.testduration = 1
+        trackResult.copyduration = 1
+        trackResult.testcrc = 0x1
+        trackResult.copycrc = 0x1
+        trackResult.AR = {
+            "v1": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+            "v2": {"DBConfidence": None, "DBCRC": None, "CRC": None},
+        }
+        ripResult.tracks.append(trackResult)
+        log = WhipperLogger().log(ripResult, epoch=0)
+        self.assertIn("Peak level: 1.0", log)
+        self.assertIn("Extraction quality: 100.00 %", log)
+
+
 class CompleteRipLogTestCase(unittest.TestCase):
     """Issue #352: only complete whipper logs count as finished rips."""
 
@@ -320,13 +389,10 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
         self.assertIn("jitter: 3", log)
         self.assertIn("transport error: 1", log)
         self.assertIn("scsi_read error: 2", log)
-        # zero-valued events are omitted
         self.assertNotIn("skip:", log)
-        # track-relative positions in MSF
         self.assertIn("Suspicious positions:", log)
         self.assertIn("00:01:15 - 00:01:16", log)
         self.assertIn("01:00:00 - 01:00:10", log)
-        # matching CRCs but severe cdparanoia errors reported
         self.assertIn("Copy OK (WARNING: uncorrected/skipped sectors", log)
         self.assertIn("Health status: There were errors", log)
         self.assertIn("cdparanoia health:", log)
@@ -344,24 +410,15 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
     def testClassifyCdparanoiaEvents(self):
         from whipper.program.cdparanoia import classify_cdparanoia_events
         severe, corrections, lossy = classify_cdparanoia_events({
-            "read": 10,
-            "jitter": 5,
-            "skip": 2,
-            "scratch": 1,
-            "transport error": 1,
-            "scsi_read error": 3,
-            "drift": 2,
-            "unknown_event": 4,
+            "read": 10, "jitter": 5, "skip": 2, "scratch": 1,
+            "transport error": 1, "scsi_read error": 3,
+            "drift": 2, "unknown_event": 4,
         })
-        # skip + scratch + transport + scsi
         self.assertEqual(severe, 2 + 1 + 1 + 3)
-        # jitter + drift + unknown
         self.assertEqual(corrections, 5 + 2 + 4)
-        # only definitely-lossy names (alphabetical)
         self.assertEqual(lossy, ["scratch", "scsi_read error", "skip"])
 
     def testClassifyTransportErrorNotInLossyNames(self):
-        """#294: transport error may be recovered ('e' in progress bar)."""
         from whipper.program.cdparanoia import classify_cdparanoia_events
         severe, corrections, lossy = classify_cdparanoia_events(
             {"transport error": 2})
@@ -406,8 +463,7 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
         log = WhipperLogger().log(ripResult, epoch=0)
         self.assertIn("Health status: There were errors", log)
         self.assertIn("cdparanoia health: severe recoverable errors", log)
-        self.assertIn("Copy OK (cdparanoia reported severe recoverable",
-                      log)
+        self.assertIn("Copy OK (cdparanoia reported severe recoverable", log)
 
     def testLoggerCleanTrackStatusUnchanged(self):
         ripResult = RipResult()

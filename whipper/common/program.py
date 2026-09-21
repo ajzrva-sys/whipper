@@ -690,7 +690,7 @@ class Program:
         trackResult.testcrc = t.testchecksum
         trackResult.copycrc = t.copychecksum
         trackResult.peak = t.peak
-        trackResult.quality = t.quality
+        trackResult.quality = t.quality if t.quality is not None else 0.0
         trackResult.testspeed = t.testspeed
         trackResult.copyspeed = t.copyspeed
         trackResult.cdparanoiaEvents = t.errorCounts

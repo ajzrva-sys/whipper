@@ -4,6 +4,33 @@
 
 [Full Changelog](https://github.com/whipper-team/whipper/compare/v0.10.0...HEAD)
 
+**Implemented enhancements:**
+
+- Patches to run whipper on FreeBSD [\#686](https://github.com/whipper-team/whipper/issues/686)
+  - Skip Linux-only `CDROM_DRIVE_STATUS` ioctl on non-Linux platforms
+  - Detect mounts via `mount(8)` instead of `/proc/mounts` on BSDs
+  - Fallback device nodes include `/dev/cd0` and `/dev/acd0`
+  - `pycdio` import is optional for `whipper cd rip` (warn and continue)
+  - Tray open/close uses `camcontrol` on BSDs, `eject` as fallback; missing
+    binaries are warnings, not fatal errors
+  - `whipper drive list` still prints device nodes when `pycdio` is missing
+  - Drive identity falls back to `camcontrol inquiry` on FreeBSD (no more
+    `Drive: NoneNone` in rip logs)
+  - `cdrdao` uses `--driver generic-mmc` on non-Linux platforms
+  - Rip logs format missing drive fields as `unknown`; CRC task progress
+    is labeled instead of the placeholder description
+  - `whipper offset find` tries AccurateRip-known offsets for the detected
+    drive model first (e.g. Plextor PX-750A → +102), plus any configured
+    read offset; disable with `--no-prioritize-known`
+  - `offset find` can use AccurateRip OffsetFindCRC (frame 450) as a fast
+    path before full-track probes (discussion #691); `--no-frame450` opts out
+  - `PyGObject` and `pycdio` are optional install extras (CLI rips do not
+    require them)
+  - Enumerate all optical units via `camcontrol devlist` when pycdio is
+    missing (multi-drive FreeBSD hosts)
+  - Detect missing cd-paranoia `--force-overread` and rip without overread
+    instead of failing (stock FreeBSD builds)
+
 **Fixed bugs:**
 
 - Path with multiple quotes raises exception [\#494](https://github.com/whipper-team/whipper/issues/494)

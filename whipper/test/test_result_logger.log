@@ -2,7 +2,7 @@ Log created by: whipper 0.7.4.dev87+gb71ec9f.d20191026 (internal logger)
 Log creation date: 2019-10-26T14:25:02Z
 
 Ripping phase information:
-  Drive: HL-DT-STBD-RE  WH14NS40 (revision 1.03)
+  Drive: HL-DT-STBD-RE WH14NS40 (revision 1.03)
   Extraction engine: cdparanoia cdparanoia III 10.2 libcdio 2.0.0 x86_64-pc-linux-gnu
   Defeat audio cache: true
   Read offset correction: 6

@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import sys
 import tempfile
 import subprocess
 from subprocess import Popen, PIPE
@@ -15,13 +16,20 @@ logger = logging.getLogger(__name__)
 
 CDRDAO = 'cdrdao'
 
+# FreeBSD/DragonFly CAM optical devices: force a well-known driver when
+# cdrdao's auto-detect is unreliable (USB/Plextor etc., issue #686).
+_FREEBSD_CDRDAO_DRIVER = 'generic-mmc'
+
 _TRACK_RE = re.compile(r"^Analyzing track (?P<track>[0-9]*) \(AUDIO\): start (?P<start>[0-9]*:[0-9]*:[0-9]*), length (?P<length>[0-9]*:[0-9]*:[0-9]*)")  # noqa: E501
 _CRC_RE = re.compile(
     r"Found (?P<channels>[0-9]*) Q sub-channels with CRC errors")
 _BEGIN_CDRDAO_RE = re.compile(r"-" * 60)
 _LAST_TRACK_RE = re.compile(r"^[ ]?(?P<track>[0-9]*)")
+# Linux: "Leadout AUDIO 1 72:45:52(327427)"
+# FreeBSD cdrdao may omit the LBA in parentheses or vary spacing
 _LEADOUT_RE = re.compile(
-    r"^Leadout AUDIO\s*[0-9]\s*[0-9]*:[0-9]*:[0-9]*\([0-9]*\)")
+    r"^Lead[-\s]?out\s+AUD(IO)?",
+    re.IGNORECASE)
 _SUBCODE_EMPHASIS_LINE = ("Pre-emphasis flag of track differs from TOC - "
                           "toc file contains TOC setting.")
 _SUBCODE_CHANNEL_LINE = (
@@ -31,6 +39,8 @@ _SUBCODE_CHANNEL_RE = re.compile(
     r"2-/4-channel-audio\s+flag of track differs from TOC")
 _CONTROL_MATCH_LINE = (
     "Control nibbles of track match CD-TOC settings.")
+# FreeBSD finish line after a successful read-toc
+_FINISH_RE = re.compile(r"Reading of toc data finished successfully")
 
 
 class ProgressParser:
@@ -59,12 +69,17 @@ class ProgressParser:
             logger.debug("RE: Begin cdrdao toc-read")
 
         leadout_m = _LEADOUT_RE.match(line)
+        finish_m = _FINISH_RE.search(line)
 
-        if leadout_m:
-            logger.debug("RE: Reached leadout")
+        if leadout_m or finish_m:
+            logger.debug("RE: Reached leadout/finish")
             last_track_m = _LAST_TRACK_RE.match(self.oldline)
-            if last_track_m:
-                self.tracks = last_track_m.group('track')
+            if last_track_m and last_track_m.group('track'):
+                self.tracks = int(last_track_m.group('track'))
+            elif self.currentTrack and not self.tracks:
+                # FreeBSD may not print a classic leadout line; fall back
+                # to the last analyzed track number.
+                self.tracks = int(self.currentTrack)
 
         track_s = _TRACK_RE.search(line)
         if track_s:
@@ -118,6 +133,19 @@ class ProgressParser:
         return None
 
 
+def read_toc_command(device, fast_toc=False, tocfile=None):
+    """Build the cdrdao read-toc argv for this platform."""
+    cmd = [CDRDAO, 'read-toc']
+    if fast_toc:
+        cmd.append('--fast-toc')
+    if not sys.platform.startswith('linux'):
+        cmd.extend(['--driver', _FREEBSD_CDRDAO_DRIVER])
+    cmd.extend(['--device', device])
+    if tocfile is not None:
+        cmd.append(tocfile)
+    return cmd
+
+
 class ReadTOCTask(task.Task):
     """Task that reads the TOC of the disc using cdrdao."""
 
@@ -149,9 +177,8 @@ class ReadTOCTask(task.Task):
         os.close(self.fd)
         os.unlink(self.tocfile)
 
-        cmd = ([CDRDAO, 'read-toc']
-               + (['--fast-toc'] if self.fast_toc else [])
-               + ['--device', self.device, self.tocfile])
+        cmd = read_toc_command(self.device, fast_toc=self.fast_toc,
+                               tocfile=self.tocfile)
 
         self._popen = asyncsub.Popen(cmd,
                                      bufsize=1024,
@@ -277,7 +304,10 @@ class ReadTOCTask(task.Task):
 
 def DetectCdr(device):
     """Whether cdrdao detects a CD-R for ``device``."""
-    cmd = [CDRDAO, 'disk-info', '-v1', '--device', device]
+    cmd = [CDRDAO, 'disk-info', '-v1']
+    if not sys.platform.startswith('linux'):
+        cmd.extend(['--driver', _FREEBSD_CDRDAO_DRIVER])
+    cmd.extend(['--device', device])
     logger.debug("executing %r", cmd)
     p = Popen(cmd, stdout=PIPE, stderr=PIPE)
     # Issue #654: avoid UnicodeDecodeError on odd drive strings
@@ -289,12 +319,18 @@ def version():
     """Return cdrdao version as a string."""
     cdrdao = Popen(CDRDAO, stderr=PIPE)
     _, err = cdrdao.communicate()
-    if cdrdao.returncode != 1:
+    # Linux cdrdao exits 1 when run with no args; some BSD builds exit 0
+    # after printing usage/version on stderr (issue #686).
+    text = err.decode('utf-8')
+    if cdrdao.returncode not in (0, 1):
         logger.warning("cdrdao version detection failed: "
                        "return code is %s", cdrdao.returncode)
         return None
     err_text = (err or b'').decode('utf-8', errors='replace')
     m = re.compile(r'^Cdrdao version (?P<version>[^ ]*)').search(err_text)
+    if not m:
+        # some builds print the banner without a leading newline first
+        m = re.compile(r'Cdrdao version (?P<version>[^ ]*)').search(err_text)
     if not m:
         logger.warning("cdrdao version detection failed: "
                        "could not find version")

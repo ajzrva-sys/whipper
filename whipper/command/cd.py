@@ -19,10 +19,8 @@
 # along with whipper.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
-import cdio
 import importlib.util
 import os
-import glob
 import logging
 from whipper.command.basecommand import BaseCommand
 from whipper.common import (
@@ -245,9 +243,16 @@ class _CD(BaseCommand):
         self.program.result.title = self.program.metadata \
             and self.program.metadata.releaseTitle \
             or 'Unknown Title'
-        _, self.program.result.vendor, self.program.result.model, \
-            self.program.result.release = \
-            cdio.Device(self.device).get_hwinfo()
+        # pycdio first, then FreeBSD camcontrol (issue #686)
+        if info:
+            (self.program.result.vendor,
+             self.program.result.model,
+             self.program.result.release) = info
+        else:
+            logger.warning(
+                'could not identify drive hardware info; '
+                'vendor/model will not be recorded in the rip log '
+                '(install pycdio, or on FreeBSD ensure camcontrol works)')
         self.program.result.metadata = self.program.metadata
 
         ret = self.doCommand()

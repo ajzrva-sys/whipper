@@ -140,17 +140,24 @@ class LoggerTestCase(unittest.TestCase):
         # do not test on version line, date line, or SHA-256 hash line
         self.assertListEqual(actualLines[2:-1], expectedLines[2:-1])
 
-        # RegEX updated to support all the 4 cases of the versioning scheme:
+        # Accept setuptools-scm / PEP 440 local versions, including
+        # distro or CI labels such as 0.10.0+freebsd686 (issue #686).
         # https://github.com/pypa/setuptools_scm/#default-versioning-scheme
+        # https://peps.python.org/pep-0440/#local-version-identifiers
         versionSchemes = [
-            actualLines[0],  # 'Log created by: whipper 0.7.4.dev87+gb71ec9f.d20191026 (internal logger)'  # noqa: E501
+            actualLines[0],
+            'Log created by: whipper 0.7.4.dev87+gb71ec9f.d20191026 (internal logger)',  # noqa: E501
             'Log created by: whipper 0.7.4.dev87+gb71ec9f (internal logger)',
             'Log created by: whipper 0.7.4+d20191026 (internal logger)',
-            'Log created by: whipper 0.7.4 (internal logger)'
+            'Log created by: whipper 0.7.4 (internal logger)',
+            'Log created by: whipper 0.10.0+freebsd686 (internal logger)',
+            'Log created by: whipper 0.10.0+ci (internal logger)',
         ]
         created_by_re = re.compile((
                             r'Log created by: whipper '
-                            r'[\d]+\.[\d]+\.[\d]+(\+d\d{8}|\.dev[\w.+]+)? '
+                            r'\d+\.\d+\.\d+'
+                            r'(\.dev[\w.+]+)?'
+                            r'(\+[\w.]+)? '
                             r'\(internal logger\)'
                         ))
         for versionScheme in versionSchemes:

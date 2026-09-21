@@ -444,12 +444,32 @@ class ReadTrackTask(task.Task):
         stopOffset = self._stop
 
         for i, _ in enumerate(self._table.tracks):
-            if self._table.getTrackStart(i + 1) <= self._start:
+            tstart = self._table.getTrackStart(i + 1)
+            tend = self._table.getTrackEnd(i + 1)
+            if tstart <= self._start <= tend:
                 startTrack = i + 1
-                startOffset = self._start - self._table.getTrackStart(i + 1)
-            if self._table.getTrackEnd(i + 1) <= self._stop:
+                startOffset = self._start - tstart
+            # Mid-track spans (e.g. offset-find frame 450) must set
+            # stopTrack for the track that contains stop, not only when
+            # stop reaches that track's end.
+            if tstart <= self._stop <= tend:
                 stopTrack = i + 1
-                stopOffset = self._stop - self._table.getTrackStart(i + 1)
+                stopOffset = self._stop - tstart
+            elif self._stop > tend:
+                stopTrack = i + 1
+                stopOffset = self._stop - tstart
+
+        if startTrack == 0 or stopTrack == 0:
+            # last resort: last track covering the range
+            n = len(self._table.tracks)
+            if startTrack == 0:
+                startTrack = 1
+                startOffset = max(
+                    0, self._start - self._table.getTrackStart(1))
+            if stopTrack == 0:
+                stopTrack = n
+                stopOffset = max(
+                    0, self._stop - self._table.getTrackStart(n))
 
         logger.debug('ripping from %d to %d (inclusive)', self._start,
                      self._stop)
@@ -458,7 +478,14 @@ class ReadTrackTask(task.Task):
         logger.debug('stopping at track %d, offset %d', stopTrack, stopOffset)
 
         bufsize = 1024
-        if self._overread:
+        overread = self._overread
+        if overread and not supports_force_overread():
+            logger.warning(
+                'cd-paranoia on this system does not document '
+                '--force-overread; rips will not overread into lead-out '
+                '(stock FreeBSD/libcdio-paranoia builds often lack it)')
+            overread = False
+        if overread:
             argv = ["cd-paranoia", "--stderr-progress",
                     "--sample-offset=%d" % self._offset, "--force-overread", ]
         else:
@@ -837,6 +864,27 @@ def getCdParanoiaVersion():
                                   "%(version)s %(release)s")
 
     return getter.get()
+
+
+def supports_force_overread():
+    """
+    True if the installed cd-paranoia documents --force-overread.
+
+    FreeBSD ports often ship stock libcdio-paranoia without the whipper/
+    patched overread flag (issue #686). Callers should warn and omit the
+    flag rather than abort the rip.
+    """
+    try:
+        proc = subprocess.run(
+            ['cd-paranoia', '-h'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.debug('cd-paranoia -h failed: %s', e)
+        return False
+    text = proc.stdout.decode(errors='replace') if proc.stdout else ''
+    return '--force-overread' in text or 'force-overread' in text
 
 
 _OK_RE = re.compile(r'Drive tests OK with Paranoia.')

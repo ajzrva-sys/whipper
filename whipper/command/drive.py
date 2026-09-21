@@ -74,21 +74,28 @@ class List(BaseCommand):
         self.config = config.Config()
 
         if not paths:
-            logger.critical('no drives found. Create /dev/cdrom '
-                            'if you have a CD drive, or install '
-                            'pycdio for better detection')
-            return
-
-        try:
-            import cdio as _  # noqa: F401 (TODO: fix it in a separate PR?)
-        except ImportError:
-            logger.error('install pycdio for vendor/model/release detection')
+            logger.critical(
+                'no drives found. Create /dev/cdrom (Linux) or use '
+                '/dev/cd0 (FreeBSD) if you have a CD drive, or install '
+                'pycdio for better detection')
             return
 
         for path in paths:
-            vendor, model, release = drive.getDeviceInfo(path)
+            # pycdio when present; camcontrol on FreeBSD otherwise
+            info = drive.getDeviceInfo(path)
+            if info:
+                vendor, model, release = info
+            else:
+                vendor = model = release = 'unknown'
             print("drive: %s, vendor: %s, model: %s, release: %s" % (
                   path, vendor, model, release))
+
+            if vendor == 'unknown' and model == 'unknown':
+                logger.warning(
+                    'no hardware info for %s; install pycdio (or on '
+                    'FreeBSD ensure camcontrol works) for offset '
+                    'configuration by drive', path)
+                continue
 
             try:
                 offset = self.config.getReadOffset(

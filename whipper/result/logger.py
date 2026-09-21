@@ -59,6 +59,17 @@ def is_complete_rip_log(path):
     return any(marker in tail or marker in text for marker in LOG_END_MARKERS)
 
 
+def _format_drive(vendor, model, release):
+    """Human-readable drive string; never emits NoneNone (#686)."""
+    vendor = (vendor or '').strip()
+    model = (model or '').strip()
+    release = (release or '').strip() or 'unknown'
+    name = ' '.join(p for p in (vendor, model) if p)
+    if not name:
+        name = 'unknown'
+    return '%s (revision %s)' % (name, release)
+
+
 class WhipperLogger(result.Logger):
 
     _accuratelyRipped = 0
@@ -125,7 +136,7 @@ class WhipperLogger(result.Logger):
         # Rip technical settings
         data = OrderedDict()
 
-        data["Drive"] = "%s%s (revision %s)" % (
+        data["Drive"] = _format_drive(
             ripResult.vendor, ripResult.model, ripResult.release)
         data["Extraction engine"] = "cdparanoia %s" % (
             ripResult.cdparanoiaVersion)

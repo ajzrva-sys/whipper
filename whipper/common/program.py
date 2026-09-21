@@ -640,9 +640,21 @@ class Program:
             else:
                 raise
 
-        ret = trackResult.testcrc == t.checksum
-        logger.debug('verifyTrack: track result crc %r, file crc %r, '
-                     'result %r', trackResult.testcrc, t.checksum, ret)
+        # Issue #681: on a resume, TrackResult is fresh and testcrc is None.
+        # Comparing None == checksum always failed, so every existing track
+        # was re-ripped. If we have no prior CRC, accept the file and record
+        # its checksum so later CRC checks in the rip command succeed.
+        if trackResult.testcrc is not None:
+            ret = trackResult.testcrc == t.checksum
+            logger.debug('verifyTrack: track result crc %r, file crc %r, '
+                         'result %r', trackResult.testcrc, t.checksum, ret)
+        else:
+            trackResult.testcrc = t.checksum
+            trackResult.copycrc = t.checksum
+            logger.info('reusing existing track file %r (CRC %08X); '
+                        'no prior CRC on record to verify against',
+                        trackResult.filename, t.checksum)
+            ret = True
         return ret
 
     def ripTrack(self, runner, trackResult, offset, device, taglist,

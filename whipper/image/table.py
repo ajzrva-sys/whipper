@@ -21,6 +21,7 @@
 """Wrap Table of Contents."""
 
 import copy
+import os
 from urllib.parse import urlunparse, urlencode
 
 import whipper
@@ -485,6 +486,13 @@ class Table:
         lines = []
 
         def writeFile(path):
+            if not path:
+                return
+            # Skip TOC placeholders for files that were never ripped (#508)
+            base = os.path.basename(path)
+            if base == 'data.wav' and not os.path.exists(path):
+                logger.debug('skipping missing data track FILE %r', path)
+                return
             targetPath = common.getRelativePath(path, cuePath)
             line = 'FILE "%s" WAVE' % targetPath
             lines.append(line)
@@ -523,7 +531,12 @@ class Table:
         track = firstTrack
 
         while not index.path:
-            t, i = self.getNextTrackIndex(track.number, index.number)
+            try:
+                t, i = self.getNextTrackIndex(track.number, index.number)
+            except Exception as e:
+                logger.debug('no further indexes after %r/%r: %s',
+                             track.number, index.number, e)
+                break
             track = self.tracks[t - 1]
             index = track.getIndex(i)
             counter = index.counter

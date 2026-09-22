@@ -1,6 +1,6 @@
 # Change Log
 
-## [v0.12.0](https://github.com/ajzrva-sys/whipper/tree/v0.12.0) (unreleased)
+## [v0.12.0](https://github.com/ajzrva-sys/whipper/tree/release/v0.12.0) (unreleased)
 
 **Implemented enhancements:**
 
@@ -34,11 +34,27 @@
 - `whipper drive analyze` and `drive list` share the platform backend instead
   of reaching into `sys.platform`
 
+**Offset detection corrections:**
+
+- Integrate the offset corrections proposed in upstream [#713](https://github.com/whipper-team/whipper/pull/713).
+  Both short-window and ordinary candidates must confirm every track except
+  the last before the offset is saved. Explicit `--offsets` values control
+  the permitted candidates and their order.
+- Replace substring matches and forced drive overrides with exact normalized
+  vendor/model matching. Keep conflicting published offsets ranked by
+  submission count, and regenerate deterministically from the captured
+  AccurateRip source and checksum.
+- Correct partial-track read ranges while preserving pregap and hidden-track
+  ranges; clean up temporary files on failed reads and confirmation.
+- Keep the fork's optional dependencies, FreeBSD identity fallback, ripping
+  diagnostics, and other release work. Separate released and development
+  installation instructions.
+
 ## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) (2026-09-21)
 
 [Full Changelog](https://github.com/ajzrva-sys/whipper/compare/v0.10.0...v0.11.0)
 
-Upstream is still v0.10.0. This tag is that plus PRs [#700](https://github.com/whipper-team/whipper/pull/700)–[#712](https://github.com/whipper-team/whipper/pull/712). Tested on FreeBSD 15.1 / Plextor PX-750A. Same source tarball for Linux.
+Upstream is still v0.10.0. This tag is that plus the original versions of PRs [#700](https://github.com/whipper-team/whipper/pull/700)–[#712](https://github.com/whipper-team/whipper/pull/712). Tested on FreeBSD 15.1 / Plextor PX-750A. Same source tarball for Linux.
 
 **Implemented enhancements:**
 

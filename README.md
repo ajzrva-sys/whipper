@@ -7,9 +7,20 @@
 
 Fork of [whipper-team/whipper](https://github.com/whipper-team/whipper). Python 3 CD-DA ripper. Accuracy over speed.
 
-Upstream last released **v0.10.0** in May 2021. I opened 13 PRs against that tree (FreeBSD, crash fixes, pre-emphasis, HTOA, path truncation, and the rest). They have not landed yet. This repo is those PRs tagged as **[v0.11.0](https://github.com/ajzrva-sys/whipper/releases/tag/v0.11.0)** so you can install them.
+The published **[v0.11.0 release](https://github.com/ajzrva-sys/whipper/releases/tag/v0.11.0)**
+contains this fork's FreeBSD support and ripping fixes. The `develop` branch
+also includes unreleased offset-detection corrections; the upcoming
+[`release/v0.12.0` branch](https://github.com/ajzrva-sys/whipper/tree/release/v0.12.0)
+adds diagnostics and requires Python 3.11 or later.
 
-I ripped with it on FreeBSD 15.1, Plextor PX-750A. Linux is still the original platform. Same source tarball for both. There is no separate Linux release.
+The upstream proposals are split into [FreeBSD drive/tool support (#712)](https://github.com/whipper-team/whipper/pull/712)
+and [offset detection and reproducible drive lookup (#713)](https://github.com/whipper-team/whipper/pull/713).
+This fork retains its additional features, including optional drive-information
+bindings and FreeBSD identity lookup via `camcontrol`.
+
+Earlier hardware testing used FreeBSD 15.1 and a Plextor PX-750A. The screenshot
+below is from that work; the revised offset implementation has automated Linux
+tests and mocked FreeBSD checks, with no new physical-drive verification.
 
 ![whipper ripping The Smiths on FreeBSD 15.1 with a Plextor PX-750A](docs/whipper-freebsd-bsdthink.png)
 
@@ -20,7 +31,8 @@ Whipper started as a fork of [morituri](https://github.com/thomasvs/morituri). T
 - [Features](#features)
 - [Changelog](#changelog)
 - [Installation](#installation)
-  * [This fork (v0.11.0)](#this-fork-v0110)
+  * [Published release (v0.11.0)](#published-release-v0110)
+  * [Development versions](#development-versions)
   * [Upstream (whipper-team/whipper)](#upstream-whipper-teamwhipper)
   * [Docker](#docker)
   * [Package](#package)
@@ -68,11 +80,7 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
-### This fork
-
-> **v0.12.0 (in development)** is on the `release/v0.12.0` branch and adds
-> `whipper doctor`, `-v` verbosity, and a `whipper.platform` backend. The
-> tagged v0.11.0 install below is the current stable release.
+### Published release (v0.11.0)
 
 ```bash
 # Linux
@@ -98,14 +106,34 @@ pip install '.[driveinfo,cover_art]'   # Linux
 
 ```bash
 whipper --version
-whipper doctor       # checks drive, C tools and services; exits non-zero if not ready
 whipper drive list
 ```
 
-`-v`/`-vv`/`-vvv` raise verbosity (INFO / DEBUG / subprocess traces); use
-`-V`/`--version` to print the version.
-
 `gobject` (`PyGObject`) is an extra if you want it. The CLI rip path does not use it.
+
+### Development versions
+
+To use the corrected offset search and lookup table, install `develop` after
+installing the [system dependencies](#required-dependencies):
+
+```bash
+git clone -b develop https://github.com/ajzrva-sys/whipper.git
+cd whipper
+python3 -m pip install '.[driveinfo,cover_art]'  # Linux
+# FreeBSD (after installing the packages listed below):
+# CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" python3 -m pip install .
+whipper --version
+whipper drive list
+```
+
+For the upcoming v0.12 work, use `git clone -b release/v0.12.0` in place of
+`git clone -b develop` above, with Python 3.11 or later. Only that branch adds
+`whipper doctor` and the `-v` / `-vv` / `-vvv` verbosity levels. Use
+`--version` to print the version on either branch.
+
+The development branches are unreleased. The offset behavior described below
+applies to these branches; installing the v0.11.0 tag does not include the new
+confirmation and lookup corrections.
 
 ### Upstream (whipper-team/whipper)
 
@@ -304,17 +332,12 @@ is logged as a warning and does not abort the rip.
 `cdrdao` is invoked with `--driver generic-mmc` on non-Linux platforms
 so CAM/USB optical drives get a predictable SCSI transport.
 
-`whipper offset find` probes AccurateRip offsets known for the detected
-drive model first (and any configured read offset) before the rest of
-the offset list. Use `--no-prioritize-known` to force the raw `-o`
-list only. Regenerate the model table from a download of
-http://www.accuraterip.com/driveoffsets.htm with
-`misc/gen_drive_offsets.py` if needed.
-
-When the AccurateRip entry includes OffsetFindCRC data (Spoon spec:
-frame 450 of track 1), `offset find` first tries a short single-window
-sweep against those CRCs (discussion #691) and only falls back to
-full-track probe rips if that fails. Disable with `--no-frame450`.
+`whipper offset find` uses the same offset search on Linux and FreeBSD.
+In the development branches, configured and published offsets prioritize
+probing, and every candidate must confirm all tracks except the last before
+it is saved. See [Getting started](#getting-started) for the search switches
+and [lookup-table regeneration](misc/accuraterip/README.md) for the captured
+source, checksum, and explicit input/output arguments.
 
 Optional pycdio (for parity with Linux offset-by-drive storage) can be
 built from source once `pkg-config`, `swig`, and `libcdio` are present:
@@ -390,7 +413,17 @@ The simplest way to get started making accurate rips is:
 
    If you omit the `-o` argument, whipper will try a long, popularity-sorted list of drive offsets.
 
-   Please note that whipper's offset find feature is quite primitive so it may not always achieve its task: in this case using the value listed in [AccurateRip's CD Drive Offset database](http://www.accuraterip.com/driveoffsets.htm) should be enough.
+   Offset finding first tries a short AccurateRip checksum window and uses
+   configured and published drive-model offsets to prioritize ordinary probing.
+   Every candidate must match all tracks except the last before it is saved.
+   These checks confirm an offset against the inserted disc; the model lookup
+   alone does not verify a drive. Missing window data falls back to ordinary
+   probing. If no offset matches, try another disc in the AccurateRip database.
+
+   Supplying `--offsets` probes only the listed values, in order, bypassing
+   automatic selection. `--no-frame450 --no-prioritize-known` uses the original
+   candidate order and full-track probing. The bundled lookup table is
+   [reproducible from its source snapshot](misc/accuraterip/README.md).
 
    If you can not confirm your drive offset value but wish to set a default regardless, set `read_offset = insert-numeric-value-here` in `whipper.conf`.
 

@@ -444,32 +444,14 @@ class ReadTrackTask(task.Task):
         stopOffset = self._stop
 
         for i, _ in enumerate(self._table.tracks):
-            tstart = self._table.getTrackStart(i + 1)
-            tend = self._table.getTrackEnd(i + 1)
-            if tstart <= self._start <= tend:
+            if self._table.getTrackStart(i + 1) <= self._start:
                 startTrack = i + 1
-                startOffset = self._start - tstart
-            # Mid-track spans (e.g. offset-find frame 450) must set
-            # stopTrack for the track that contains stop, not only when
-            # stop reaches that track's end.
-            if tstart <= self._stop <= tend:
+                startOffset = self._start - self._table.getTrackStart(i + 1)
+            # Select the track containing the end of a partial read too.
+            # An endpoint before track 1 stays in the existing HTOA span.
+            if self._table.getTrackStart(i + 1) <= self._stop:
                 stopTrack = i + 1
-                stopOffset = self._stop - tstart
-            elif self._stop > tend:
-                stopTrack = i + 1
-                stopOffset = self._stop - tstart
-
-        if startTrack == 0 or stopTrack == 0:
-            # last resort: last track covering the range
-            n = len(self._table.tracks)
-            if startTrack == 0:
-                startTrack = 1
-                startOffset = max(
-                    0, self._start - self._table.getTrackStart(1))
-            if stopTrack == 0:
-                stopTrack = n
-                stopOffset = max(
-                    0, self._stop - self._table.getTrackStart(n))
+                stopOffset = self._stop - self._table.getTrackStart(i + 1)
 
         logger.debug('ripping from %d to %d (inclusive)', self._start,
                      self._stop)

@@ -3,35 +3,35 @@
 
 import os
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 from whipper.test import common
 from whipper.common import drive
+from whipper.platform import base, freebsd, linux
 
 
 class ListifyTestCase(common.TestCase):
 
     def testString(self):
         string = '/dev/sr0'
-        self.assertEqual(drive._listify(string), [string, ])
+        self.assertEqual(base._listify(string), [string, ])
 
     def testList(self):
         lst = ['/dev/scd0', '/dev/sr0']
-        self.assertEqual(drive._listify(lst), lst)
+        self.assertEqual(base._listify(lst), lst)
 
 
 class StaticDevicePathsTestCase(common.TestCase):
 
     def test_includes_freebsd_nodes(self):
         # Issue #686: FreeBSD optical devices are /dev/cd0 (CAM) or /dev/acd0
-        self.assertIn('/dev/cd0', drive._STATIC_DEVICE_CANDIDATES)
-        self.assertIn('/dev/acd0', drive._STATIC_DEVICE_CANDIDATES)
-        self.assertIn('/dev/cdrom', drive._STATIC_DEVICE_CANDIDATES)
+        self.assertIn('/dev/cd0', base.STATIC_DEVICE_CANDIDATES)
+        self.assertIn('/dev/acd0', base.STATIC_DEVICE_CANDIDATES)
+        self.assertIn('/dev/cdrom', base.STATIC_DEVICE_CANDIDATES)
 
     def test_existing_nodes_listed(self):
-        found = drive._getAllDevicePathsStatic()
+        found = base.static_device_paths()
         for path in found:
             self.assertTrue(os.path.exists(path))
 
@@ -46,98 +46,126 @@ class CamcontrolDevicePathsTestCase(common.TestCase):
     )
 
     def test_parses_multiple_optical_units(self):
-        with mock.patch('whipper.common.drive.subprocess.check_output',
+        with mock.patch('whipper.platform.freebsd.subprocess.check_output',
                         return_value=self._DEVLIST.encode()), \
-             mock.patch('whipper.common.drive.os.path.exists',
+             mock.patch('whipper.platform.freebsd.os.path.exists',
                         side_effect=lambda p: p.startswith('/dev/cd')
                         or p.startswith('/dev/acd')):
-            paths = drive._getAllDevicePathsCamcontrol()
+            paths = freebsd._camcontrol_devlist()
         self.assertEqual(paths, ['/dev/cd0', '/dev/cd1', '/dev/acd0'])
 
-    def test_getAllDevicePaths_uses_camcontrol_off_linux(self):
-        with mock.patch.dict('sys.modules', {'cdio': None}), \
-             mock.patch('whipper.common.drive.sys.platform', 'freebsd15'), \
-             mock.patch.object(drive, '_getAllDevicePathsCamcontrol',
-                               return_value=['/dev/cd0', '/dev/cd1']) as cam, \
-             mock.patch.object(drive, '_getAllDevicePathsStatic') as static:
-            paths = drive.getAllDevicePaths()
+    def test_freebsd_device_paths_uses_camcontrol(self):
+        p = freebsd.FreeBSDPlatform()
+        with mock.patch.dict(sys.modules, {'pycdio': None}), \
+             mock.patch('whipper.platform.freebsd._camcontrol_devlist',
+                        return_value=['/dev/cd0', '/dev/cd1']) as cam, \
+             mock.patch('whipper.platform.base.static_device_paths') as static:
+            paths = p.get_all_device_paths()
         self.assertEqual(paths, ['/dev/cd0', '/dev/cd1'])
         cam.assert_called_once()
         static.assert_not_called()
 
-    def test_falls_back_to_static_when_camcontrol_empty(self):
-        with mock.patch.dict('sys.modules', {'cdio': None}), \
-             mock.patch('whipper.common.drive.sys.platform', 'freebsd15'), \
-             mock.patch.object(drive, '_getAllDevicePathsCamcontrol',
-                               return_value=[]), \
-             mock.patch.object(drive, '_getAllDevicePathsStatic',
-                               return_value=['/dev/cd0']) as static:
-            self.assertEqual(drive.getAllDevicePaths(), ['/dev/cd0'])
+    def test_freebsd_falls_back_to_static_when_camcontrol_empty(self):
+        p = freebsd.FreeBSDPlatform()
+        with mock.patch.dict(sys.modules, {'pycdio': None}), \
+             mock.patch('whipper.platform.freebsd._camcontrol_devlist',
+                        return_value=[]), \
+             mock.patch('whipper.platform.base.static_device_paths',
+                        return_value=['/dev/cd0']) as static:
+            self.assertEqual(p.get_all_device_paths(), ['/dev/cd0'])
         static.assert_called_once()
+
+    def test_linux_device_paths_uses_static(self):
+        p = linux.LinuxPlatform()
+        with mock.patch.dict(sys.modules, {'pycdio': None}), \
+             mock.patch('whipper.platform.base.static_device_paths',
+                        return_value=['/dev/cdrom']) as static:
+            self.assertEqual(p.get_all_device_paths(), ['/dev/cdrom'])
+        static.assert_called_once()
+
+
+class DeviceInfoTestCase(common.TestCase):
+
+    def test_freebsd_identify_uses_camcontrol(self):
+        p = freebsd.FreeBSDPlatform()
+        with mock.patch.dict(sys.modules, {'cdio': None}), \
+             mock.patch('whipper.platform.freebsd._camcontrol_inquiry',
+                        return_value=('PLEXTOR', 'PX-750A', '1.02')) as fb:
+            info = p.get_device_info('/dev/cd0')
+        self.assertEqual(info, ('PLEXTOR', 'PX-750A', '1.02'))
+        fb.assert_called_once_with('/dev/cd0')
+
+    def test_linux_identify_returns_none_without_pycdio(self):
+        p = linux.LinuxPlatform()
+        with mock.patch.dict(sys.modules, {'cdio': None}):
+            info = p.get_device_info('/dev/sr0')
+        self.assertIsNone(info)
 
 
 class CdromDriveStatusTestCase(common.TestCase):
 
     def test_linux_uses_ioctl(self):
-        with mock.patch.object(drive.sys, 'platform', 'linux'), \
-             mock.patch.object(drive.os, 'open', return_value=3) as open_, \
-             mock.patch.object(drive.os, 'close') as close, \
-             mock.patch.object(drive, 'ioctl',
-                               return_value=drive.CDS_DISC_OK) as ioctl:
-            rc = drive.get_cdrom_drive_status('/dev/sr0')
-        self.assertEqual(rc, drive.CDS_DISC_OK)
+        p = linux.LinuxPlatform()
+        with mock.patch.object(linux.os, 'open', return_value=3) as open_, \
+             mock.patch.object(linux.os, 'close') as close, \
+             mock.patch.object(linux, 'ioctl',
+                               return_value=base.CDS_DISC_OK) as ioctl:
+            rc = p.disc_status('/dev/sr0')
+        self.assertEqual(rc, base.CDS_DISC_OK)
         open_.assert_called_once()
-        ioctl.assert_called_once_with(3, drive._CDROM_DRIVE_STATUS)
+        ioctl.assert_called_once_with(3, linux.CDROM_DRIVE_STATUS)
         close.assert_called_once_with(3)
 
-    def test_non_linux_skips_ioctl(self):
-        # Issue #686: FreeBSD must not call the Linux-only ioctl
-        with mock.patch.object(drive.sys, 'platform', 'freebsd15'), \
-             mock.patch.object(drive.os, 'open') as open_, \
-             mock.patch.object(drive, 'ioctl') as ioctl:
-            rc = drive.get_cdrom_drive_status('/dev/cd0')
-        self.assertEqual(rc, drive.CDS_NO_INFO)
-        open_.assert_not_called()
-        ioctl.assert_not_called()
-
     def test_linux_closes_fd_on_error(self):
-        with mock.patch.object(drive.sys, 'platform', 'linux'), \
-             mock.patch.object(drive.os, 'open', return_value=7), \
-             mock.patch.object(drive.os, 'close') as close, \
-             mock.patch.object(drive, 'ioctl',
-                               side_effect=OSError('boom')):
+        p = linux.LinuxPlatform()
+        with mock.patch.object(linux.os, 'open', return_value=7), \
+             mock.patch.object(linux.os, 'close') as close, \
+             mock.patch.object(linux, 'ioctl', side_effect=OSError('boom')):
             raised = False
             try:
-                drive.get_cdrom_drive_status('/dev/sr0')
+                p.disc_status('/dev/sr0')
             except OSError:
                 raised = True
         self.assertTrue(raised)
         close.assert_called_once_with(7)
 
-    @unittest.skipUnless(sys.platform.startswith('linux'),
-                         'real ioctl path only on Linux')
-    def test_real_linux_ioctl_runs(self):
-        # Smoke test: should not raise for a non-CD path on Linux
-        # (ioctl may fail with ENOTTY — that is acceptable OS behaviour)
-        try:
-            drive.get_cdrom_drive_status('/dev/null')
-        except OSError:
-            pass
+    def test_freebsd_skips_ioctl(self):
+        # Issue #686: FreeBSD must not call the Linux-only ioctl
+        p = freebsd.FreeBSDPlatform()
+        with mock.patch.object(freebsd.os, 'open') as open_:
+            rc = p.disc_status('/dev/cd0')
+        self.assertEqual(rc, base.CDS_NO_INFO)
+        open_.assert_not_called()
 
-    def test_freebsd_path_tolerates_missing_node(self):
-        with mock.patch.object(drive.sys, 'platform', 'freebsd15'):
+    def test_freebsd_tolerates_missing_node(self):
+        p = freebsd.FreeBSDPlatform()
+        self.assertEqual(p.disc_status('/nonexistent/cd0'), base.CDS_NO_INFO)
+
+
+class DriveDelegationTestCase(common.TestCase):
+
+    def test_get_cdrom_drive_status_delegates(self):
+        with mock.patch.object(drive.platform, 'disc_status',
+                               return_value=base.CDS_DISC_OK) as ds:
+            rc = drive.get_cdrom_drive_status('/dev/sr0')
+        self.assertEqual(rc, base.CDS_DISC_OK)
+        ds.assert_called_once_with('/dev/sr0')
+
+    def test_getAllDevicePaths_delegates(self):
+        with mock.patch.object(drive.platform, 'get_all_device_paths',
+                               return_value=['/dev/sr0']) as gap:
+            self.assertEqual(drive.getAllDevicePaths(), ['/dev/sr0'])
+        gap.assert_called_once()
+
+    def test_getDeviceInfo_delegates(self):
+        with mock.patch.object(drive.platform, 'get_device_info',
+                               return_value=('PLEXTOR', 'PX-750A', '1.02')) \
+                as gdi:
             self.assertEqual(
-                drive.get_cdrom_drive_status('/nonexistent/cd0'),
-                drive.CDS_NO_INFO)
+                drive.getDeviceInfo('/dev/cd0'),
+                ('PLEXTOR', 'PX-750A', '1.02'))
+        gdi.assert_called_once_with('/dev/cd0')
 
-    def test_mkstemp_path_not_opened_on_freebsd(self):
-        fd, path = tempfile.mkstemp()
-        os.close(fd)
-        try:
-            with mock.patch.object(drive.sys, 'platform', 'freebsd15'), \
-                 mock.patch.object(drive.os, 'open') as open_:
-                self.assertEqual(drive.get_cdrom_drive_status(path),
-                                 drive.CDS_NO_INFO)
-            open_.assert_not_called()
-        finally:
-            os.unlink(path)
+
+if __name__ == '__main__':
+    unittest.main()

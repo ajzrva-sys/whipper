@@ -5,7 +5,7 @@ import sys
 from unittest import mock
 
 from whipper.command import drive as drive_cmd
-from whipper.common import drive as common_drive
+from whipper.platform import freebsd, linux
 from whipper.test import common
 
 
@@ -64,28 +64,26 @@ class CamcontrolDeviceInfoTestCase(common.TestCase):
     )
 
     def test_parses_camcontrol_inquiry(self):
-        with mock.patch('whipper.common.drive.subprocess.check_output',
+        with mock.patch('whipper.platform.freebsd.subprocess.check_output',
                         return_value=self._INQUIRY.encode()), \
-             mock.patch('whipper.common.drive.os.path.realpath',
+             mock.patch('whipper.platform.freebsd.os.path.realpath',
                         side_effect=lambda p: p):
-            info = common_drive._getDeviceInfoCamcontrol('/dev/cd0')
+            info = freebsd._camcontrol_inquiry('/dev/cd0')
         # preserve inquiry spacing inside the model string
         self.assertEqual(info, ('PLEXTOR', 'DVDR   PX-750A', '1.02'))
 
     def test_getDeviceInfo_falls_back_on_freebsd_without_pycdio(self):
+        p = freebsd.FreeBSDPlatform()
         with mock.patch.dict(sys.modules, {'cdio': None}), \
-             mock.patch('whipper.common.drive.sys.platform', 'freebsd15'), \
              mock.patch.object(
-                 common_drive, '_getDeviceInfoCamcontrol',
+                 freebsd, '_camcontrol_inquiry',
                  return_value=('PLEXTOR', 'PX-750A', '1.02')) as fb:
-            info = common_drive.getDeviceInfo('/dev/cd0')
+            info = p.get_device_info('/dev/cd0')
         self.assertEqual(info, ('PLEXTOR', 'PX-750A', '1.02'))
         fb.assert_called_once_with('/dev/cd0')
 
     def test_getDeviceInfo_returns_none_on_linux_without_pycdio(self):
-        with mock.patch.dict(sys.modules, {'cdio': None}), \
-             mock.patch('whipper.common.drive.sys.platform', 'linux'), \
-             mock.patch.object(common_drive, '_getDeviceInfoCamcontrol') as fb:
-            info = common_drive.getDeviceInfo('/dev/sr0')
+        p = linux.LinuxPlatform()
+        with mock.patch.dict(sys.modules, {'cdio': None}):
+            info = p.get_device_info('/dev/sr0')
         self.assertIsNone(info)
-        fb.assert_not_called()

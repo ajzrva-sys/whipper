@@ -1,12 +1,12 @@
 import os
 import re
 import shutil
-import sys
 import tempfile
 import subprocess
 from subprocess import Popen, PIPE
 
 from whipper.common.common import truncate_filename, truncate_path_components
+from whipper.platform import platform
 from whipper.image.toc import TocFile
 from whipper.extern.task import task
 from whipper.extern import asyncsub
@@ -15,10 +15,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 CDRDAO = 'cdrdao'
-
-# FreeBSD/DragonFly CAM optical devices: force a well-known driver when
-# cdrdao's auto-detect is unreliable (USB/Plextor etc., issue #686).
-_FREEBSD_CDRDAO_DRIVER = 'generic-mmc'
 
 _TRACK_RE = re.compile(r"^Analyzing track (?P<track>[0-9]*) \(AUDIO\): start (?P<start>[0-9]*:[0-9]*:[0-9]*), length (?P<length>[0-9]*:[0-9]*:[0-9]*)")  # noqa: E501
 _CRC_RE = re.compile(
@@ -138,8 +134,7 @@ def read_toc_command(device, fast_toc=False, tocfile=None):
     cmd = [CDRDAO, 'read-toc']
     if fast_toc:
         cmd.append('--fast-toc')
-    if not sys.platform.startswith('linux'):
-        cmd.extend(['--driver', _FREEBSD_CDRDAO_DRIVER])
+    cmd.extend(platform.cdrdao_driver_args())
     cmd.extend(['--device', device])
     if tocfile is not None:
         cmd.append(tocfile)
@@ -305,8 +300,7 @@ class ReadTOCTask(task.Task):
 def DetectCdr(device):
     """Whether cdrdao detects a CD-R for ``device``."""
     cmd = [CDRDAO, 'disk-info', '-v1']
-    if not sys.platform.startswith('linux'):
-        cmd.extend(['--driver', _FREEBSD_CDRDAO_DRIVER])
+    cmd.extend(platform.cdrdao_driver_args())
     cmd.extend(['--device', device])
     logger.debug("executing %r", cmd)
     p = Popen(cmd, stdout=PIPE, stderr=PIPE)

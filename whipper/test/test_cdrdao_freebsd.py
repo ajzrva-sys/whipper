@@ -37,7 +37,8 @@ class Crc32TaskDescriptionTestCase(common.TestCase):
 class CdrdaoCommandTestCase(common.TestCase):
 
     def test_linux_read_toc_command(self):
-        with mock.patch('whipper.program.cdrdao.sys.platform', 'linux'):
+        with mock.patch('whipper.platform.platform.cdrdao_driver_args',
+                        return_value=[]):
             cmd = cdrdao.read_toc_command('/dev/sr0', fast_toc=True,
                                            tocfile='/tmp/t.toc')
         self.assertEqual(
@@ -46,7 +47,8 @@ class CdrdaoCommandTestCase(common.TestCase):
              '--device', '/dev/sr0', '/tmp/t.toc'])
 
     def test_freebsd_read_toc_forces_generic_mmc(self):
-        with mock.patch('whipper.program.cdrdao.sys.platform', 'freebsd15'):
+        with mock.patch('whipper.platform.platform.cdrdao_driver_args',
+                        return_value=['--driver', 'generic-mmc']):
             cmd = cdrdao.read_toc_command('/dev/cd0', fast_toc=False,
                                            tocfile='/tmp/t.toc')
         self.assertEqual(

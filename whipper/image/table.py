@@ -21,7 +21,6 @@
 """Wrap Table of Contents."""
 
 import copy
-import os
 from urllib.parse import urlunparse, urlencode
 
 import whipper
@@ -551,11 +550,8 @@ class Table:
         def writeFile(path):
             if not path:
                 return
-            # Skip TOC placeholders for files that were never ripped (#508)
-            base = os.path.basename(path)
-            if base == 'data.wav' and not os.path.exists(path):
-                logger.debug('skipping missing data track FILE %r', path)
-                return
+            # File references describe the image even before audio exists.
+            # Skipped data tracks and discarded HTOA clear their paths.
             targetPath = common.getRelativePath(path, cuePath)
             line = 'FILE "%s" WAVE' % cueEscape(targetPath)
             lines.append(line)

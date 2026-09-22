@@ -64,7 +64,7 @@ CD in the AccurateRip database."""
 
         self.parser.add_argument(
             '--no-prioritize-known', action='store_true',
-            help='do not prepend configured or published model offsets')
+            help='do not prioritize configured or published model offsets')
         self.parser.add_argument(
             '--no-frame450', action='store_true',
             help='skip the short AccurateRip checksum window')
@@ -144,6 +144,12 @@ CD in the AccurateRip database."""
                 known[0] if known else 0)
             fast = offsetfind.find_offsets(
                 runner, table, device, responses, guess=guess)
+            # Several pressings may match the short window. Prefer known
+            # drive offsets among those matches before trying other shifts.
+            fast = drive_offsets.order_offsets(
+                fast, configured=configured if configured in fast else None,
+                known=[candidate for candidate in known if candidate in fast],
+                prioritize=not self.options.no_prioritize_known)
             offsets = drive_offsets.order_offsets(offsets, known=fast)
 
         for offset in offsets:

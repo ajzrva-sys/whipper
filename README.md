@@ -18,9 +18,11 @@ and [offset detection and reproducible drive lookup (#713)](https://github.com/w
 This fork retains its additional features, including optional drive-information
 bindings and FreeBSD identity lookup via `camcontrol`.
 
-Earlier hardware testing used FreeBSD 15.1 and a Plextor PX-750A. The screenshot
-below is from that work; the revised offset implementation has automated Linux
-tests and mocked FreeBSD checks, with no new physical-drive verification.
+The screenshot below is from earlier testing on FreeBSD 15.1 with a Plextor
+PX-750A. On 22 September 2026, the revised offset search also confirmed +102
+against all 12 required tracks of a 13-track disc on that drive, using the
+FreeBSD identity fallback. Automated checks run on Linux and FreeBSD; this
+single-drive result does not validate every entry in the published lookup table.
 
 ![whipper ripping The Smiths on FreeBSD 15.1 with a Plextor PX-750A](docs/whipper-freebsd-bsdthink.png)
 

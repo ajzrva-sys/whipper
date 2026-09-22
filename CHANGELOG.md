@@ -6,6 +6,9 @@
   Both short-window and ordinary candidates must confirm every track except
   the last before the offset is saved. Explicit `--offsets` values control
   the permitted candidates and their order.
+  When several offsets match the short window, prefer configured and
+  published offsets within those matches before trying other shifts; retain
+  the `--no-prioritize-known` opt-out.
 - Replace substring matches and forced drive overrides with exact normalized
   vendor/model matching. Keep conflicting published offsets ranked by
   submission count, and regenerate deterministically from the captured

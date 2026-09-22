@@ -1,6 +1,8 @@
 import os
 from subprocess import Popen, PIPE
 
+from whipper.common import common
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -17,9 +19,11 @@ def peak_level(track_path):
     if not os.path.exists(track_path):
         logger.warning("SoX peak detection failed: file not found")
         return None
-    sox = Popen([SOX, track_path, "-n", "stats", "-b", "16"], stderr=PIPE)
+    argv = [SOX, track_path, "-n", "stats", "-b", "16"]
+    sox = Popen(argv, stderr=PIPE)
     _, err = sox.communicate()
     if sox.returncode:
+        common.subprocess_trace(argv, returncode=sox.returncode, stderr=err)
         logger.warning("SoX peak detection failed: %s", sox.returncode)
         return None
     # relevant captured lines looks like this:

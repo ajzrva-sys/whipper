@@ -4,7 +4,7 @@
 import sys
 import musicbrainzngs
 import whipper
-from whipper.command import cd, offset, drive, image, accurip, mblookup
+from whipper.command import cd, offset, drive, image, accurip, mblookup, doctor
 from whipper.command.basecommand import BaseCommand
 from whipper.common import common, config
 from whipper.extern.task import task
@@ -33,6 +33,8 @@ def main():
 
     try:
         cmd = Whipper(sys.argv[1:], 'whipper', None)
+        # -v/-vv/-vvv (issue: verbosity now owns -v; version is -V/--version)
+        whipper.configure_logging(getattr(cmd.options, 'verbosity', 0))
         ret = cmd.do()
     except SystemError as e:
         logger.critical("SystemError: %s", e)
@@ -77,6 +79,7 @@ class Whipper(BaseCommand):
     subcommands = {
         'accurip': accurip.AccuRip,
         'cd': cd.CD,
+        'doctor': doctor.Doctor,
         'drive': drive.Drive,
         'offset': offset.Offset,
         'image': image.Image,
@@ -87,7 +90,12 @@ class Whipper(BaseCommand):
         self.parser.add_argument('-R', '--record',
                                  action='store_true', dest='record',
                                  help="record API requests for playback")
-        self.parser.add_argument('-v', '--version',
+        self.parser.add_argument('-v', '--verbose',
+                                 action="count", dest="verbosity",
+                                 default=0,
+                                 help="increase verbosity: -v INFO, "
+                                      "-vv DEBUG, -vvv subprocess traces")
+        self.parser.add_argument('-V', '--version',
                                  action="store_true", dest="version",
                                  help="show version information")
         self.parser.add_argument('-h', '--help',

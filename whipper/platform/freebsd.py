@@ -60,6 +60,31 @@ def _camcontrol_devlist():
     return paths
 
 
+def _camcontrol_units():
+    """
+    Map each optical unit name (``cd0``) to its full CAM unit group.
+
+    ``camcontrol devlist`` lines look like ``... (cd0,pass1)``. Returns a
+    mapping of optical unit -> list of all units in that group, so callers
+    can find the matching ``passN`` device for a ``/dev/cdN`` node.
+    """
+    try:
+        out = subprocess.check_output(
+            ['camcontrol', 'devlist'],
+            stderr=subprocess.DEVNULL).decode(errors='replace')
+    except (OSError, subprocess.CalledProcessError) as e:
+        logger.debug('camcontrol devlist failed: %s', e)
+        return {}
+
+    units = {}
+    for match in _CAMCONTROL_DEVLIST_UNITS_RE.finditer(out):
+        group = [u.strip() for u in match.group('units').split(',')]
+        for unit in group:
+            if _CAMCONTROL_OPTICAL_UNIT_RE.match(unit):
+                units[unit] = group
+    return units
+
+
 def _camcontrol_inquiry(path):
     """
     Identify an optical drive via FreeBSD camcontrol inquiry.
@@ -94,6 +119,15 @@ class FreeBSDPlatform(base.Platform):
 
     def identify_device(self, path):
         return _camcontrol_inquiry(path)
+
+    def cam_pass_device(self, path):
+        """The /dev/passN CAM device paired with a /dev/cdN node."""
+        periph = os.path.basename(os.path.realpath(path))
+        group = _camcontrol_units().get(periph, [])
+        for unit in group:
+            if unit.startswith('pass'):
+                return '/dev/%s' % unit
+        return None
 
     def eject(self, device):
         if base.run_tray_cmd(camcontrol_cmd(device, 'eject'),

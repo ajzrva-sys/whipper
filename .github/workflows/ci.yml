@@ -43,3 +43,28 @@ jobs:
 
       - name: Lint
         run: flake8 -j 1
+
+  freebsd:
+    name: FreeBSD VM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          # pkg can't express a requirements file; freebsd-packages.txt is
+          # the canonical list. Install the same set here.
+          prepare: |
+            pkg install -y python3 cdrdao flac sox libdiscid \
+              libcdio-paranoia libsndfile eject pkgconf
+            pyver=$(python3 -c 'import sys; print("%d%d" % (sys.version_info[0], sys.version_info[1]))')
+            pkg install -y "py${pyver}-pip"
+          run: |
+            export CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib"
+            python3 -m pip install twisted
+            python3 -m pip install .
+            python3 -m unittest discover

@@ -68,7 +68,11 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
-### This fork (v0.11.0)
+### This fork
+
+> **v0.12.0 (in development)** is on the `release/v0.12.0` branch and adds
+> `whipper doctor`, `-v` verbosity, and a `whipper.platform` backend. The
+> tagged v0.11.0 install below is the current stable release.
 
 ```bash
 # Linux
@@ -94,8 +98,12 @@ pip install '.[driveinfo,cover_art]'   # Linux
 
 ```bash
 whipper --version
+whipper doctor       # checks drive, C tools and services; exits non-zero if not ready
 whipper drive list
 ```
+
+`-v`/`-vv`/`-vvv` raise verbosity (INFO / DEBUG / subprocess traces); use
+`-V`/`--version` to print the version.
 
 `gobject` (`PyGObject`) is an extra if you want it. The CLI rip path does not use it.
 
@@ -137,7 +145,7 @@ Please note that the example alias written above only provides access to a singl
 Finally, you can test the correct installation as such:
 
 ```
-whipper -v
+whipper --version
 whipper drive list
 ```
 

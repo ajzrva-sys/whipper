@@ -21,6 +21,7 @@
 from whipper.command.basecommand import BaseCommand
 from whipper.common import config, drive
 from whipper.extern.task import task
+from whipper.platform import platform
 from whipper.program import cdparanoia
 
 import logging
@@ -90,6 +91,17 @@ class List(BaseCommand):
             print("drive: %s, vendor: %s, model: %s, release: %s" % (
                   path, vendor, model, release))
 
+            if drive.has_pycdio():
+                print("       detection: pycdio")
+            elif info:
+                print("       detection: %s" % platform.name)
+            else:
+                print("       detection: static (no pycdio/camcontrol)")
+
+            pass_device = drive.get_cam_pass_device(path)
+            if pass_device:
+                print("       CAM device: %s" % pass_device)
+
             if vendor == 'unknown' and model == 'unknown':
                 logger.warning(
                     'no hardware info for %s; install pycdio (or on '
@@ -100,19 +112,19 @@ class List(BaseCommand):
             try:
                 offset = self.config.getReadOffset(
                     vendor, model, release)
-                print("       Configured read offset: %d" % offset)
+                print("       Configured read offset: %+d" % offset)
             except KeyError:
                 # Note spaces at the beginning for pretty terminal output
-                logger.warning("no read offset found. "
-                               "Run 'whipper offset find'")
+                print("       Read offset: not configured "
+                      "(run 'whipper offset find')")
 
             try:
                 defeats = self.config.getDefeatsCache(
                     vendor, model, release)
                 print("       Can defeat audio cache: %s" % defeats)
             except KeyError:
-                logger.warning("unknown whether audio cache can be "
-                               "defeated. Run 'whipper drive analyze'")
+                print("       Cache defeat: unknown "
+                      "(run 'whipper drive analyze')")
 
 
 class Drive(BaseCommand):

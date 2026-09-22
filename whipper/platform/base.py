@@ -142,6 +142,10 @@ class Platform:
         """Backend-native identity (no pycdio); None when unsupported."""
         return None
 
+    def cam_pass_device(self, path):
+        """FreeBSD CAM passN device for a /dev/cdN node, else None."""
+        return None
+
     # -- disc presence ----------------------------------------------------
 
     def disc_status(self, path):

@@ -1,5 +1,39 @@
 # Change Log
 
+## [v0.12.0](https://github.com/ajzrva-sys/whipper/tree/v0.12.0) (unreleased)
+
+**Implemented enhancements:**
+
+- **Python 3.11 floor** — dropped the dead `>=3.6` / Travis 3.5–3.10 matrix;
+  GitHub Actions tests 3.11–3.14 on Ubuntu and a real FreeBSD VM
+  (`vmactions/freebsd-vm`)
+- **`whipper.platform` backend** — the Linux/FreeBSD forks in `drive.py`,
+  `utils.py` and `cdrdao.py` moved behind a single platform seam
+  (`whipper/platform/{base,linux,freebsd}.py`). Callers import
+  `whipper.platform`, not `sys.platform`
+- **`whipper doctor`** — a new command that checks the OS, drive, helper
+  programs (`cd-paranoia`, `cdrdao`, `flac`, `sox`) and services
+  (MusicBrainz, AccurateRip) and reports whether the host is ready to rip,
+  with the exact install/repair command for each failure. Exits non-zero when
+  something is missing
+- **`-v` verbosity** — `-v`/`-vv`/`-vvv` now raise logging verbosity
+  (INFO / DEBUG / subprocess traces) instead of printing the version; the
+  version flag is now `-V`/`--version`. `WHIPPER_DEBUG` / `WHIPPER_LOGFILE`
+  keep working
+- **Subprocess diagnostics** — `-vvv` traces helper-process argv, exit codes
+  and stderr tails (cd-paranoia, cdrdao, flac, sox) so failures are debuggable
+  without `strace`
+- **Richer `whipper drive list`** — per-drive detection backend
+  (pycdio vs camcontrol vs static), the FreeBSD CAM pass device, and explicit
+  read-offset / cache-defeat status
+
+**Changes:**
+
+- `freebsd-packages.txt` remains canonical; the FreeBSD VM CI job installs it
+  directly and runs the same `python -m unittest discover` as Ubuntu
+- `whipper drive analyze` and `drive list` share the platform backend instead
+  of reaching into `sys.platform`
+
 ## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) (2026-09-21)
 
 [Full Changelog](https://github.com/ajzrva-sys/whipper/compare/v0.10.0...v0.11.0)

@@ -485,3 +485,37 @@ class VersionGetter:
             raise
 
         return version
+
+
+def subprocess_trace(argv, returncode=None, stderr=None):
+    """
+    Emit one subprocess trace line at the SUBPROCESS level (``-vvv``).
+
+    Program wrappers call this so ``whipper -vvv cd rip`` shows the exact
+    argv, exit code and a short stderr tail of every helper process without
+    needing ``strace``.
+
+    :param argv: the command line that was (or is about to be) spawned
+    :type  argv: list(str)
+    :param returncode: process exit code once known, else None
+    :type  returncode: int or None
+    :param stderr: captured stderr bytes/text, else None
+    :type  stderr: bytes or str or None
+    """
+    # Lazy import to stay out of the whipper/__init__ import cycle.
+    from whipper import SUBPROCESS
+
+    if not logger.isEnabledFor(SUBPROCESS):
+        return
+
+    cmdline = ' '.join(str(a) for a in argv)
+    logger.log(SUBPROCESS, 'spawn: %s', cmdline)
+    if returncode is not None:
+        logger.log(SUBPROCESS, 'exit %d: %s', returncode, cmdline)
+    if stderr:
+        text = stderr
+        if isinstance(text, bytes):
+            text = text.decode('utf-8', errors='replace')
+        tail = [ln for ln in str(text).splitlines() if ln.strip()][-5:]
+        if tail:
+            logger.log(SUBPROCESS, 'stderr tail: %s', ' | '.join(tail))

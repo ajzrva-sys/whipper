@@ -52,6 +52,25 @@ def getDeviceInfo(path):
     return platform.get_device_info(path)
 
 
+def get_cam_pass_device(path):
+    """
+    The FreeBSD CAM passN device paired with a /dev/cdN node, else None.
+
+    On Linux and other platforms this returns None; it exists so ``drive
+    list`` and ``doctor`` can show the CAM pass device on FreeBSD.
+    """
+    return platform.cam_pass_device(path)
+
+
+def has_pycdio():
+    """True when the optional pycdio backend is importable."""
+    try:
+        import pycdio  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def get_cdrom_drive_status(drive_path):
     """
     Get the status of the disc drive.

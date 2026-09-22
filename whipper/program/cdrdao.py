@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 from subprocess import Popen, PIPE
 
+from whipper.common import common
 from whipper.common.common import truncate_filename, truncate_path_components
 from whipper.platform import platform
 from whipper.image.toc import TocFile
@@ -182,6 +183,7 @@ class ReadTOCTask(task.Task):
                                      stderr=subprocess.PIPE,
                                      close_fds=True)
 
+        common.subprocess_trace(cmd)
         self.schedule(0.01, self._read, runner)
 
     def _read(self, runner):

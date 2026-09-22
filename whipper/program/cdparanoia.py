@@ -529,6 +529,7 @@ class ReadTrackTask(task.Task):
 
             raise
 
+        common.subprocess_trace(argv)
         self._start_time = time.time()
         self.schedule(1.0, self._read, runner)
 
@@ -608,6 +609,8 @@ class ReadTrackTask(task.Task):
                                                         size, expected)))
 
         if not self.exception and self._popen.returncode != 0:
+            common.subprocess_trace(
+                self._popen.args, returncode=self._popen.returncode)
             if self._errors:
                 print("\n".join(self._errors))
             else:

@@ -1,4 +1,6 @@
-from subprocess import check_call, CalledProcessError
+from subprocess import check_call, CalledProcessError, PIPE
+
+from whipper.common import common
 
 import logging
 logger = logging.getLogger(__name__)
@@ -10,11 +12,11 @@ def encode(infile, outfile):
 
     Uses ``-f`` because whipper already creates the file.
     """
+    argv = ['flac', '--silent', '--verify', '-o', outfile, '-f', infile]
     try:
-        # TODO: Replace with Popen so that we can catch stderr and write it to
-        # logging
-        check_call(['flac', '--silent', '--verify', '-o', outfile,
-                    '-f', infile])
-    except CalledProcessError:
+        check_call(argv, stderr=PIPE)
+    except CalledProcessError as e:
+        common.subprocess_trace(argv, returncode=e.returncode,
+                                stderr=e.stderr)
         logger.exception('flac failed')
         raise

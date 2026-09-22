@@ -29,7 +29,8 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-Home = "https://github.com/whipper-team/whipper"
+Home = "https://github.com/ajzrva-sys/whipper"
+Upstream = "https://github.com/whipper-team/whipper"
 
 [project.optional-dependencies]
 cover_art = ["pillow"]

@@ -1,32 +1,35 @@
 # Whipper
 
-[![license](https://img.shields.io/github/license/whipper-team/whipper.svg)](https://github.com/whipper-team/whipper/blob/develop/LICENSE)
-[![Build Status](https://travis-ci.com/whipper-team/whipper.svg?branch=develop)](https://travis-ci.com/whipper-team/whipper)
-[![GitHub (pre-)release](https://img.shields.io/github/release/whipper-team/whipper/all.svg)](https://github.com/whipper-team/whipper/releases/latest)
+[![license](https://img.shields.io/github/license/ajzrva-sys/whipper.svg)](LICENSE)
+[![release](https://img.shields.io/github/v/release/ajzrva-sys/whipper)](https://github.com/ajzrva-sys/whipper/releases/latest)
+[![fork of whipper-team/whipper](https://img.shields.io/badge/fork-whipper--team%2Fwhipper-blue)](https://github.com/whipper-team/whipper)
 [![IRC](https://img.shields.io/badge/irc-%23whipper%40libera.chat-brightgreen.svg)](https://web.libera.chat/?channels=%23whipper)
-[![GitHub Stars](https://img.shields.io/github/stars/whipper-team/whipper.svg)](https://github.com/whipper-team/whipper/stargazers)
-[![GitHub Issues](https://img.shields.io/github/issues/whipper-team/whipper.svg)](https://github.com/whipper-team/whipper/issues)
-[![GitHub contributors](https://img.shields.io/github/contributors/whipper-team/whipper.svg)](https://github.com/whipper-team/whipper/graphs/contributors)
 
-Whipper is a Python 3 (3.6+) CD-DA ripper based on the [morituri project](https://github.com/thomasvs/morituri) (_CDDA ripper for *nix systems aiming for accuracy over speed_). It started just as a fork of morituri - which development seems to have halted - merging old ignored pull requests, improving it with bugfixes and new features. Nowadays whipper's codebase diverges significantly from morituri's one.
+Fork of [whipper-team/whipper](https://github.com/whipper-team/whipper). Python 3 CD-DA ripper. Accuracy over speed.
 
-Whipper is currently developed and tested _only_ on Linux distributions but _may_ work fine on other *nix OSes too.
+Upstream last released **v0.10.0** in May 2021. I opened 13 PRs against that tree (FreeBSD, crash fixes, pre-emphasis, HTOA, path truncation, and the rest). They have not landed yet. This repo is those PRs tagged as **[v0.11.0](https://github.com/ajzrva-sys/whipper/releases/tag/v0.11.0)** so you can install them.
 
-In order to track whipper's latest changes it's advised to check its commit history (README and [CHANGELOG](#changelog) files may not be comprehensive).
+I ripped with it on FreeBSD 15.1, Plextor PX-750A. Linux is still the original platform. Same source tarball for both. There is no separate Linux release.
+
+![whipper ripping The Smiths on FreeBSD 15.1 with a Plextor PX-750A](docs/whipper-freebsd-bsdthink.png)
+
+Whipper started as a fork of [morituri](https://github.com/thomasvs/morituri). Test & Copy rips, AccurateRip, MusicBrainz, FLAC. Details: [The Art of the Rip](https://web.archive.org/web/20160528213242/https://thomas.apestaart.org/thomas/trac/wiki/DAD/Rip).
 
 ## Table of content
 
-- [Rationale](#rationale)
 - [Features](#features)
 - [Changelog](#changelog)
 - [Installation](#installation)
+  * [This fork (v0.11.0)](#this-fork-v0110)
+  * [Upstream (whipper-team/whipper)](#upstream-whipper-teamwhipper)
   * [Docker](#docker)
   * [Package](#package)
 - [Building](#building)
   1. [Required dependencies](#required-dependencies)
-  2. [Optional dependencies](#optional-dependencies)
-  3. [Fetching the source code](#fetching-the-source-code)
-  4. [Finalizing the build](#finalizing-the-build)
+  2. [FreeBSD](#freebsd)
+  3. [Optional dependencies](#optional-dependencies)
+  4. [Fetching the source code](#fetching-the-source-code)
+  5. [Finalizing the build](#finalizing-the-build)
 - [Usage](#usage)
 - [Getting started](#getting-started)
 - [Configuration file documentation](#configuration-file-documentation)
@@ -40,11 +43,6 @@ In order to track whipper's latest changes it's advised to check its commit hist
   - [Bug reports & feature requests](#bug-reports--feature-requests)
 - [Credits](#credits)
 - [Links](#links)
-
-## Rationale
-
-For a detailed description, see morituri's wiki page: [The Art of the Rip](
-https://web.archive.org/web/20160528213242/https://thomas.apestaart.org/thomas/trac/wiki/DAD/Rip).
 
 ## Features
 
@@ -66,42 +64,36 @@ https://web.archive.org/web/20160528213242/https://thomas.apestaart.org/thomas/t
 
 ## Changelog
 
-See [CHANGELOG.md](https://github.com/whipper-team/whipper/blob/develop/CHANGELOG.md).
-
-For detailed information, please check the commit history.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
-This is the **v0.11.0 community fork** which bundles 13 PRs not yet merged upstream, including full FreeBSD support, crash fixes, pre-emphasis reporting, HTOA improvements, and more. See [CHANGELOG.md](CHANGELOG.md) for the full list.
-
-### Quick install from this fork (pip)
-
-Install directly from the GitHub release tarball (no local clone needed):
+### This fork (v0.11.0)
 
 ```bash
-# Linux — install with all optional extras
-pip install 'whipper[driveinfo,gobject,cover_art] @ https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
+# Linux
+pip install 'whipper[driveinfo,cover_art] @ https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
 
-# FreeBSD — minimal CLI install (pycdio and PyGObject are optional)
+# FreeBSD — pycdio and PyGObject are optional
 CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" \
   pip install 'https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
 ```
 
-Or install from a local clone:
+From a clone:
 
 ```bash
-git clone -b release/v0.11.0 https://github.com/ajzrva-sys/whipper.git
+git clone -b v0.11.0 https://github.com/ajzrva-sys/whipper.git
 cd whipper
-pip install '.[driveinfo,gobject,cover_art]'   # Linux
-# or:  pip install .                             # FreeBSD minimal
+pip install '.[driveinfo,cover_art]'   # Linux
+# pip install .                        # FreeBSD
 ```
-
-Verify the install:
 
 ```bash
 whipper --version
 whipper drive list
 ```
+
+`gobject` (`PyGObject`) is an extra if you want it. The CLI rip path does not use it.
 
 ### Upstream (whipper-team/whipper)
 
@@ -168,7 +160,7 @@ Whipper relies on the following packages in order to run correctly and provide a
 - [musicbrainzngs](https://pypi.org/project/musicbrainzngs/), for metadata lookup
 - [mutagen](https://pypi.python.org/pypi/mutagen), for tagging support
 - [setuptools](https://pypi.python.org/pypi/setuptools), for installation, plugins support
-- [pycdio](https://pypi.python.org/pypi/pycdio/), for drive identification (required for drive offset and caching behavior to be stored in the configuration file).
+- [pycdio](https://pypi.python.org/pypi/pycdio/), for drive identification (`pip install '.[driveinfo]'`). Optional in this fork: without it, FreeBSD uses `camcontrol inquiry`, and Linux still rips if you pass `--offset` (or have it in the config).
   - To avoid bugs it's advised to use the most recent `pycdio` version with the corresponding `libcdio` release or, if stuck on old pycdio versions, **0.20**/**0.21** with `libcdio` ≥ **0.90** ≤ **0.94**. All other combinations won't probably work.
 - [discid](https://pypi.org/project/discid/), for calculating Musicbrainz disc id.
 - [ruamel.yaml](https://pypi.org/project/ruamel.yaml/), for generating well formed YAML report logfiles
@@ -333,9 +325,11 @@ These dependencies are not listed in the `requirements.txt`. To install them, ju
 Change to a directory where you want to put whipper source code (for example, `$HOME/dev/ext` or `$HOME/prefix/src`)
 
 ```bash
-git clone https://github.com/whipper-team/whipper.git
+git clone https://github.com/ajzrva-sys/whipper.git
 cd whipper
 ```
+
+Vanilla upstream is still [whipper-team/whipper](https://github.com/whipper-team/whipper).
 
 ### Finalizing the build
 
@@ -498,10 +492,9 @@ Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 
 ## Contributing
 
-Make sure you have the latest copy from our [git
-repository](https://github.com/whipper-team/whipper). Where possible,
-please include tests for new or changed functionality. You can run tests
-with `python3 -m unittest discover` from your source checkout.
+This fork lives at [ajzrva-sys/whipper](https://github.com/ajzrva-sys/whipper). Changes meant for upstream should go to [whipper-team/whipper](https://github.com/whipper-team/whipper).
+
+Where possible, include tests for new or changed functionality. You can run tests with `python3 -m unittest discover` from your source checkout.
 
 ### Developer Certificate of Origin (DCO)
 
@@ -564,7 +557,9 @@ The DCO text can either be manually added to your commit body, or you can add ei
 
 ### Bug reports & feature requests
 
-Please use the [issue tracker](https://github.com/whipper-team/whipper/issues) to report any bugs or to file feature requests.
+Fork-specific problems (FreeBSD, the bundled PRs): [open an issue here](https://github.com/ajzrva-sys/whipper/issues).
+
+Something that is also broken upstream: [whipper-team/whipper](https://github.com/whipper-team/whipper/issues).
 
 When filing bug reports, please run the failing command with the environment variable `WHIPPER_DEBUG` set. For example:
 

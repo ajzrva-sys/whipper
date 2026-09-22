@@ -1,10 +1,10 @@
 # Change Log
 
-## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) — Community fork release
+## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) (2026-09-21)
 
 [Full Changelog](https://github.com/ajzrva-sys/whipper/compare/v0.10.0...v0.11.0)
 
-Community release bundling 13 open PRs from upstream. Hardware-tested on FreeBSD 15.1 with a Plextor PX-750A.
+Upstream is still v0.10.0. This tag is that plus PRs [#700](https://github.com/whipper-team/whipper/pull/700)–[#712](https://github.com/whipper-team/whipper/pull/712). Tested on FreeBSD 15.1 / Plextor PX-750A. Same source tarball for Linux.
 
 **Implemented enhancements:**
 

@@ -67,9 +67,8 @@ class _AccurateRipResponse:
 
         self.confidences = []
         self.checksums = []
-        # Spoon AR spec: per-track OffsetFindCRC over frame 450 of track 1
-        # (bytes 5-8 of each 9-byte track record). Used for fast offset
-        # detection; discussion #691.
+        # The final four bytes of each track record contain OffsetFindCRC.
+        # https://forum.dbpoweramp.com/forum/other-topics/developers-corner/20117-accuraterip-crc-calculation  # noqa: E501
         self.offsetfind_checksums = []
         pos = 13
         for _ in range(self.num_tracks):

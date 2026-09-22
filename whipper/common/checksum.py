@@ -38,6 +38,7 @@ class CRC32Task(etask.Task):
     # TODO: Support sampleStart, sampleLength later on (should be trivial, just
     # add change the read part in _crc32 to skip some samples and/or not
     # read too far)
+
     def __init__(self, path, sampleStart=0, sampleLength=-1, is_wave=True):
         self.path = path
         self.is_wave = is_wave

@@ -321,7 +321,6 @@ def version():
     _, err = cdrdao.communicate()
     # Linux cdrdao exits 1 when run with no args; some BSD builds exit 0
     # after printing usage/version on stderr (issue #686).
-    text = err.decode('utf-8')
     if cdrdao.returncode not in (0, 1):
         logger.warning("cdrdao version detection failed: "
                        "return code is %s", cdrdao.returncode)

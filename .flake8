@@ -1,0 +1,17 @@
+[flake8]
+# The codebase predates a strict 79-column convention; 100 keeps new code
+# readable without a mass reindent of legacy files.
+max-line-length = 100
+# E741 (ambiguous variable name) is pervasive in the offset-finding code.
+extend-ignore = E741
+exclude =
+    .venv,
+    build,
+    dist,
+    whipper.egg-info,
+    whipper/extern,
+per-file-ignores =
+    # Pre-existing visual-indent nit in legacy code.
+    whipper/common/drive_offsets.py:E128
+    # Tests carry a looser style (fixtures, mocks, verbose import blocks).
+    whipper/test/*:E127,E128,E129,E265,E301,E302,E305,E306,E501,F401,F403,F405,F811,F841,W292

@@ -163,20 +163,23 @@ FreeBSD needs the same Python dependencies as Linux, including `pycdio`.
 Install native libraries and tools before building in a virtual environment:
 
 ```sh
-pkg install python3 pkgconf swig libcdio libcdio-paranoia \
+pkg install python3 git pkgconf swig ninja libcdio libcdio-paranoia \
     libdiscid libsndfile cdrdao flac sox cairo gobject-introspection
 ```
 
-Also install the `py*-pip` package matching your installed Python version. After
-fetching the source, activate a virtual environment and install with:
+Also install the `py*-pip` package matching your installed Python version.
+For optional cover-art support, install `jpeg-turbo` before building Pillow.
+After fetching the source, create a virtual environment and install with:
 
 ```sh
+python3 -m venv .venv
+. .venv/bin/activate
 CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" python3 -m pip install .
 ```
 
 Include `/usr/local/bin` and `/usr/local/sbin` in `PATH`. The ripping user
-needs read/write access to the optical device and its associated CAM pass
-node; configure the relevant `operator` group permissions with
+needs read/write access to the optical device, its associated CAM pass
+node, and `/dev/xpt0`; configure the relevant `operator` group permissions with
 `devfs.rules(5)` instead of changing permissions on every pass device.
 
 Use `whipper drive list`, then `whipper cd -d /dev/cd0 info` to check the

@@ -52,6 +52,11 @@
 - Keep the fork's optional dependencies, FreeBSD identity fallback, ripping
   diagnostics, and other release work. Separate released and development
   installation instructions.
+- Preserve valid audio `FILE` references when exporting a cue sheet before
+  the audio exists, including files named `data.wav`. Keep skipped data
+  tracks and discarded hidden audio out of the file list.
+- Repair the cover-art test to exercise the real writer with captured image
+  bytes in a temporary directory, and consolidate duplicate coverage.
 
 ## [v0.11.0](https://github.com/ajzrva-sys/whipper/tree/v0.11.0) (2026-09-21)
 

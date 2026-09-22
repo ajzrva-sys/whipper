@@ -3,11 +3,10 @@
 
 
 import os
-import shutil
 import unittest
 from unittest import mock
 
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 from whipper.common import program, mbngs, config
 
 # Keep in sync with whipper.command.cd.DEFAULT_DISC_TEMPLATE.
@@ -164,24 +163,17 @@ class CoverArtTestCase(unittest.TestCase):
             return f.read()
 
     def testCoverArtPath(self):
-        path = os.path.dirname(__file__)
-        release_id = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
-        cover_art_path = os.path.join(path, 'cover.jpg')
-        data = self._mock_get_front_image(release_id)
-        with NamedTemporaryFile(suffix='.cover.jpg', delete=False) as f:
-            f.write(data)
-        os.chmod(f.name, 0o644)
-        shutil.move(f.name, cover_art_path)
-        return cover_art_path
-
-    def testCoverArtPath(self):
-        """Test whether a fetched cover art is saved properly."""
-        # Using: Dummy by Portishead
-        # https://musicbrainz.org/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd
-        path = os.path.dirname(__file__)
-        release_id = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
-        coverArtPath = self._mock_getCoverArt(path, release_id)
-        self.assertTrue(os.path.isfile(coverArtPath))
+        """Save fetched cover bytes under the expected name, offline."""
+        release_id = '76df3287-6cda-33eb-8e9a-044b5e15ffdd'
+        payload = self._mock_get_front_image(release_id)
+        with TemporaryDirectory() as directory:
+            with mock.patch.object(program, 'fetch_front_image',
+                                   return_value=payload) as fetch:
+                path = program.Program.getCoverArt(directory, release_id)
+            fetch.assert_called_once_with(release_id)
+            self.assertEqual(path, os.path.join(directory, 'cover.jpg'))
+            with open(path, 'rb') as cover:
+                self.assertEqual(cover.read(), payload)
 
     def testFetchFrontImageUsesGetImageFront(self):
         payload = b'\xff\xd8fakejpeg'
@@ -226,16 +218,3 @@ class CoverArtTestCase(unittest.TestCase):
         image_list.assert_called_once_with('release-id')
         urlopen.assert_called_once()
         self.assertIn('front-500', urlopen.call_args[0][0])
-
-    def testGetCoverArtWritesFile(self):
-        import tempfile
-        payload = self._mock_get_front_image(
-            '76df3287-6cda-33eb-8e9a-044b5e15ffdd')
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(program, 'fetch_front_image',
-                                   return_value=payload):
-                out = program.Program.getCoverArt(tmp, 'release-id')
-            self.assertIsNotNone(out)
-            self.assertTrue(os.path.isfile(out))
-            with open(out, 'rb') as f:
-                self.assertEqual(f.read(), payload)

@@ -1,3 +1,4 @@
+# Python deps only. FreeBSD system packages: freebsd-packages.txt
 musicbrainzngs
 mutagen
 ruamel.yaml

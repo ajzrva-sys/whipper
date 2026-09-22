@@ -74,9 +74,12 @@ See [CHANGELOG.md](CHANGELOG.md).
 # Linux
 pip install 'whipper[driveinfo,cover_art] @ https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
 
-# FreeBSD — pycdio and PyGObject are optional
+# FreeBSD — pkg first (pip will not install cdrdao/cd-paranoia/flac/…)
+pkg install -y python3 cdrdao flac sox libdiscid \
+    libcdio-paranoia libsndfile eject pkgconf
+pkg install -y py$(python3 -c 'import sys; print("%d%d" % sys.version_info[:2])')-pip
 CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" \
-  pip install 'https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
+  python3 -m pip install 'https://github.com/ajzrva-sys/whipper/archive/refs/tags/v0.11.0.tar.gz'
 ```
 
 From a clone:
@@ -84,8 +87,9 @@ From a clone:
 ```bash
 git clone -b v0.11.0 https://github.com/ajzrva-sys/whipper.git
 cd whipper
+# FreeBSD system packages: su -m root -c 'sh scripts/freebsd-deps.sh'
 pip install '.[driveinfo,cover_art]'   # Linux
-# pip install .                        # FreeBSD
+# CFLAGS="-I/usr/local/include" LDFLAGS="-L/usr/local/lib" pip install .
 ```
 
 ```bash
@@ -190,14 +194,18 @@ Whipper can run on FreeBSD. Linux-only pieces are skipped automatically
 (CDROM_DRIVE_STATUS ioctl, `/proc/mounts` unmount detection) — see
 [#686](https://github.com/whipper-team/whipper/issues/686).
 
-Install the same ripping stack from packages/ports (names may vary by
-release):
+`pkg` has no `requirements.txt`. The list is [freebsd-packages.txt](freebsd-packages.txt).
 
 ```
-pkg install python3 py312-pip cdrdao flac sox libdiscid \
-    cdparanoia libcdio-paranoia libsndfile eject
-# pycdio is optional and not always packaged
+# from a clone
+su -m root -c 'sh scripts/freebsd-deps.sh'
+
+# same thing by hand
+pkg install -y $(grep -vE '^#|^$' freebsd-packages.txt)
+pkg install -y py$(python3 -c 'import sys; print("%d%d" % sys.version_info[:2])')-pip
 ```
+
+`py312-pip` vs `py311-pip` follows whatever `python3` is on that box. The script picks it. `pycdio` is optional and not always packaged.
 
 Build and install whipper (PyGObject and pycdio are **not** required
 for CLI rips):
@@ -207,7 +215,7 @@ export CFLAGS="-I/usr/local/include"
 export LDFLAGS="-L/usr/local/lib"
 # optional extras: pip install '.[driveinfo]'  # pycdio
 #                 pip install '.[gobject]'    # PyGObject
-pip install .
+python3 -m pip install .
 ```
 
 Typical optical device nodes are `/dev/cd0` (CAM) or `/dev/acd0`.

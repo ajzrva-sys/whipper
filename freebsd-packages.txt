@@ -1,0 +1,24 @@
+# System packages whipper needs on FreeBSD.
+# pip cannot install these. pkg has no requirements.txt format.
+#
+#   pkg install -y $(grep -vE '^#|^$' freebsd-packages.txt)
+#   pkg install -y py$(python3 -c 'import sys; print("%d%d" % sys.version_info[:2])')-pip
+#
+# Or: su -m root -c 'sh scripts/freebsd-deps.sh'
+#
+# libcdio-paranoia provides the `cd-paranoia` binary whipper actually runs.
+# audio/cdparanoia is a different program (`cdparanoia`) and is not listed.
+
+python3
+cdrdao
+flac
+sox
+libdiscid
+libcdio-paranoia
+libsndfile
+eject
+pkgconf
+
+# Optional, only if you want: pip install '.[driveinfo]'  (pycdio)
+# libcdio
+# swig

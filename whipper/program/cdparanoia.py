@@ -259,7 +259,9 @@ class ReadTrackTask(task.Task):
             if self._table.getTrackStart(i + 1) <= self._start:
                 startTrack = i + 1
                 startOffset = self._start - self._table.getTrackStart(i + 1)
-            if self._table.getTrackEnd(i + 1) <= self._stop:
+            # Select the track containing the end of a partial read too.
+            # An endpoint before track 1 stays in the existing HTOA span.
+            if self._table.getTrackStart(i + 1) <= self._stop:
                 stopTrack = i + 1
                 stopOffset = self._stop - self._table.getTrackStart(i + 1)
 

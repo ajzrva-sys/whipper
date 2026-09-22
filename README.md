@@ -217,7 +217,17 @@ The simplest way to get started making accurate rips is:
 
    If you omit the `-o` argument, whipper will try a long, popularity-sorted list of drive offsets.
 
-   Please note that whipper's offset find feature is quite primitive so it may not always achieve its task: in this case using the value listed in [AccurateRip's CD Drive Offset database](http://www.accuraterip.com/driveoffsets.htm) should be enough.
+   Offset finding first tries a short AccurateRip checksum window and uses
+   configured and published drive-model offsets to prioritize ordinary probing.
+   Every candidate must match all tracks except the last before it is saved.
+   These checks confirm an offset against the inserted disc; the model lookup
+   alone does not verify a drive. Missing window data falls back to ordinary
+   probing. If no offset matches, try another disc in the AccurateRip database.
+
+   Supplying `--offsets` probes only the listed values, in order, bypassing
+   automatic selection. `--no-frame450 --no-prioritize-known` uses the original
+   candidate order and full-track probing. The bundled lookup table is
+   [reproducible from its source snapshot](misc/accuraterip/README.md).
 
    If you can not confirm your drive offset value but wish to set a default regardless, set `read_offset = insert-numeric-value-here` in `whipper.conf`.
 

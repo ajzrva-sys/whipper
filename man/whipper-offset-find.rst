@@ -34,7 +34,7 @@ Options
 |     Skip the short AccurateRip checksum window and use full-track probes.
 
 | **--no-prioritize-known**
-|     Do not prepend configured or published drive-model offsets to the probe
+|     Do not prioritize configured or published drive-model offsets in the probe
 |     list. Combine with **--no-frame450** for the original probing order.
 
 Detection
@@ -45,6 +45,8 @@ and searches within 3,000 samples of the configured offset, the most frequently
 reported model offset, or zero if neither is available. It confirms suggested
 offsets with the AccurateRip checksums of every track except the last. The
 existing minimum of three tracks and configuration format are unchanged.
+When several offsets match the short window, configured and published offsets
+are tried first among those matches, unless **--no-prioritize-known** is set.
 
 If window data is unavailable or candidates fail confirmation, ordinary probing
 continues, trying configured and published offsets before the existing list.

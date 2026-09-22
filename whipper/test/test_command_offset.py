@@ -80,6 +80,33 @@ class FindTest(unittest.TestCase):
                              [102, 6, 6, 6])
         self.found.assert_called_once_with('/dev/sr0', 6)
 
+    def test_ambiguous_fast_matches_prefer_configured_then_published(self):
+        self.fast.return_value = [-574, 84, 102]
+        for configured, expected in (
+                (84, [84, 102, -574, 0, 30, 6]),
+                (6, [102, -574, 84, 6, 0, 30])):
+            with self.subTest(configured=configured):
+                self.config.getReadOffset.return_value = configured
+                command = self.make_command()
+                command._offsets = [30, 6]
+                with mock.patch.object(command, '_confirm_offset',
+                                       return_value=False) as confirm:
+                    command.do()
+                    self.assertEqual([c[0][3] for c in confirm.call_args_list],
+                                     expected)
+        self.found.assert_not_called()
+
+    def test_fast_hint_priority_can_be_disabled(self):
+        self.fast.return_value = [-574, 84, 102]
+        command = self.make_command(no_known=True)
+        command._offsets = [30, 6]
+        with mock.patch.object(command, '_confirm_offset',
+                               return_value=False) as confirm:
+            command.do()
+            self.assertEqual([c[0][3] for c in confirm.call_args_list],
+                             [-574, 84, 102, 30, 6])
+        self.found.assert_not_called()
+
     def test_explicit_offsets_keep_order_and_exclude_hints(self):
         command = self.make_command('9,4:5,0')
         with mock.patch.object(command, '_confirm_offset',

@@ -128,7 +128,13 @@ class GetTagListTestCase(unittest.TestCase):
         prog.metadata = None
         tags = prog.getTagList(0, 'mbid')
         self.assertEqual(tags['TITLE'], 'Unknown Track')
-        self.assertNotIn('MUSICBRAINZ_DISCID', tags)
+        self.assertEqual(tags['MUSICBRAINZ_DISCID'], 'mbid')
+
+    def testUnknownNormalTrackKeepsDiscId(self):
+        prog = program_mod.Program.__new__(program_mod.Program)
+        prog.metadata = None
+        self.assertEqual(prog.getTagList(1, 'disc-id')['MUSICBRAINZ_DISCID'],
+                         'disc-id')
 
 
 class SkipHtoaOptionTestCase(unittest.TestCase):

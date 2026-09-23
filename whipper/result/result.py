@@ -74,6 +74,12 @@ class TrackResult:
             'DBMaxConfidenceCRC': None,
         }
 
+    def isComplete(self):
+        """Whether both reads completed with matching checksums."""
+        return (bool(self.filename) and not self.skipped and
+                self.testcrc is not None and self.copycrc is not None and
+                self.testcrc == self.copycrc)
+
 
 class RipResult:
     """
@@ -101,6 +107,7 @@ class RipResult:
     artist = None
     title = None
     metadata = None
+    aborted = False
 
     vendor = None
     model = None
@@ -114,6 +121,15 @@ class RipResult:
 
     def __init__(self):
         self.tracks = []
+
+    def isComplete(self):
+        """Require every audio track, excluding optional hidden audio."""
+        if self.aborted or any(t.skipped for t in self.tracks):
+            return False
+        expected = {t.number for t in self.table.tracks
+                    if getattr(t, 'audio', True)}
+        completed = {t.number for t in self.tracks if t.isComplete()}
+        return bool(expected) and expected <= completed
 
     def getTrackResult(self, number):
         """

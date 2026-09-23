@@ -164,8 +164,35 @@ class SaneTOCAndMusicBrainzTestCase(tcommon.TestCase):
         t = self._table_with_offsets([0, 300, 200], 400)
         ok, reason = t.hasSaneTOC()
         self.assertFalse(ok)
-        self.assertIn('before previous', reason)
+        self.assertIn('not after previous', reason)
         self.assertIsNone(t.getMusicBrainzDiscId())
+
+    def test_insane_negative_start(self):
+        t = self._table_with_offsets([-1, 100], 1000)
+        ok, reason = t.hasSaneTOC()
+        self.assertFalse(ok)
+        self.assertIn('before sector zero', reason)
+        self.assertIsNone(t.getMusicBrainzDiscId())
+
+    def test_insane_equal_starts(self):
+        t = self._table_with_offsets([0, 0], 1000)
+        ok, reason = t.hasSaneTOC()
+        self.assertFalse(ok)
+        self.assertIn('not after previous', reason)
+        self.assertIsNone(t.getMusicBrainzDiscId())
+
+    def test_insane_leadout_not_after_last_track(self):
+        for leadout in (50, 100):
+            with self.subTest(leadout=leadout):
+                t = self._table_with_offsets([0, 100], leadout)
+                ok, reason = t.hasSaneTOC()
+                self.assertFalse(ok)
+                self.assertIn('not after last track', reason)
+                self.assertIsNone(t.getMusicBrainzDiscId())
+
+    def test_empty_toc_with_leadout_is_incomplete(self):
+        t = self._table_with_offsets([], 1000)
+        self.assertEqual(t.hasSaneTOC(), (False, 'incomplete TOC'))
 
     def test_insane_disc_too_long(self):
         # leadout beyond libdiscid's ~90 minute limit

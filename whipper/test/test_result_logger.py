@@ -263,6 +263,13 @@ class CompleteRipLogTestCase(unittest.TestCase):
     COMPLETE = """Log created by: whipper 0.10.0 (internal logger)
 Log creation date: 2020-01-01T00:00:00Z
 
+TOC:
+  1: {}
+Tracks:
+  1:
+    Test CRC: ABCD
+    Copy CRC: ABCD
+    Status: Copy OK
 Conclusive status report:
   AccurateRip summary: All tracks accurately ripped
   Health status: No errors occurred
@@ -321,6 +328,7 @@ Conclusive status report:
         ripResult.overread = False
         ripResult.isCdr = False
         ripResult.table = MockImageTable()
+        ripResult.table.tracks = ripResult.table.tracks[:1]
         ripResult.artist = "Artist"
         ripResult.title = "Title"
         ripResult.vendor = "VEN"
@@ -401,10 +409,11 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
         self.assertIn("Suspicious positions:", log)
         self.assertIn("00:01:15 - 00:01:16", log)
         self.assertIn("01:00:00 - 01:00:10", log)
-        self.assertIn("Copy OK (WARNING: uncorrected/skipped sectors", log)
+        self.assertIn("Copy OK (cdparanoia reported severe recoverable", log)
         self.assertIn("Health status: There were errors", log)
         self.assertIn("cdparanoia health:", log)
-        self.assertIn("definitely lossy", log)
+        self.assertIn("severe recoverable errors", log)
+        self.assertNotIn("definitely lossy", log)
 
     def testLoggerCorrectionsOnlyHealth(self):
         """Corrections without severe events keep 'No errors occurred'."""
@@ -424,7 +433,7 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
         })
         self.assertEqual(severe, 2 + 1 + 1 + 3)
         self.assertEqual(corrections, 5 + 2 + 4)
-        self.assertEqual(lossy, ["scratch", "scsi_read error", "skip"])
+        self.assertEqual(lossy, ["scratch", "skip"])
 
     def testClassifyTransportErrorNotInLossyNames(self):
         from whipper.program.cdparanoia import classify_cdparanoia_events
@@ -479,6 +488,7 @@ class CdparanoiaEventsTestCase(unittest.TestCase):
         ripResult.overread = False
         ripResult.isCdr = False
         ripResult.table = MockImageTable()
+        ripResult.table.tracks = ripResult.table.tracks[:1]
         ripResult.artist = "Example Artist"
         ripResult.title = "Example Album"
         ripResult.vendor = "HL-DT-ST"

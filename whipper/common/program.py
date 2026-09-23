@@ -21,6 +21,7 @@
 """Common functionality and class for all programs using whipper."""
 
 import musicbrainzngs
+import copy
 import re
 import os
 import shutil
@@ -79,7 +80,9 @@ def fetch_front_image(release_id, size=500):
     images = (listing or {}).get('images') or []
     if not images:
         return None
-    front = next((img for img in images if img.get('front')), images[0])
+    front = next((img for img in images if img.get('front')), None)
+    if front is None:
+        return None
     thumbs = front.get('thumbnails') or {}
     url = (
         thumbs.get(str(size))
@@ -326,17 +329,15 @@ class Program:
         # path component; truncate each segment before joining.
         expanded = template % v_fltr
         parts = [p for p in expanded.split('/') if p]
-        truncated_parts = []
+        if not parts:
+            return '' if outdir == os.curdir else os.path.join(outdir, '')
+        path = outdir
         for index, part in enumerate(parts):
             last = index == len(parts) - 1
-            truncated_parts.append(common.truncate_filename(
-                part, has_file_ext=False,
-                reserve=common.EXTENSION_RESERVE if last else 0))
-        truncated_path = os.path.join(*truncated_parts) if (
-            truncated_parts) else ''
-        if outdir == os.curdir:
-            return truncated_path  # Avoid useless './' in file paths
-        return os.path.join(outdir, truncated_path)
+            path = common.truncate_filename(
+                os.path.join(path, part), has_file_ext=False,
+                reserve=common.EXTENSION_RESERVE if last else 0)
+        return path
 
     @staticmethod
     def getCDDB(cddbdiscid):
@@ -567,8 +568,9 @@ class Program:
         # Issue #485: HTOA (track 0) previously omitted all MusicBrainz IDs,
         # so media players treated it as a separate disc. Always tag disc id
         # and album-level MBIDs; track-level IDs stay on real tracks.
-        if self.metadata:
+        if mbdiscid:
             tags['MUSICBRAINZ_DISCID'] = mbdiscid
+        if self.metadata:
             tags['ALBUMARTIST'] = releaseArtist
         tags['ARTIST'] = trackArtist
         tags['TITLE'] = title
@@ -658,7 +660,7 @@ class Program:
         return
 
     @staticmethod
-    def verifyTrack(runner, trackResult):
+    def verifyTrack(runner, trackResult, expectedFrames=None):
         is_wave = not trackResult.filename.endswith('.flac')
         t = checksum.CRC32Task(trackResult.filename, is_wave=is_wave)
 
@@ -670,6 +672,16 @@ class Program:
                 return False
             else:
                 raise
+
+        if expectedFrames is not None:
+            expected_samples = expectedFrames * common.SAMPLES_PER_FRAME
+            if ((t.sampleRate, t.channels, t.sampleWidth) != (44100, 2, 2) or
+                    t.sampleCount != expected_samples):
+                logger.warning('existing track %r does not match the disc '
+                               'format or length (%d samples, expected %d)',
+                               trackResult.filename, t.sampleCount,
+                               expected_samples)
+                return False
 
         # Issue #239 / #681: EAC or previously ripped files have no
         # in-memory testcrc on resume. Comparing None == checksum always
@@ -797,6 +809,7 @@ class Program:
                 logger.warning(
                     'skipping AccurateRip checksum for track %s; no FILE path',
                     getattr(t, 'number', '?'))
+                checksum_paths.append(None)
                 continue
             checksum_paths.append(
                 os.path.join(os.path.dirname(self.cuePath), rel))
@@ -823,11 +836,14 @@ class Program:
         logger.debug('using AccurateRip path from table: %s', path)
         return path
 
-    def write_m3u(self, discname):
+    def write_m3u(self, discname, partial=False):
         m3uPath = common.truncate_filename(discname + '.m3u')
         with open(m3uPath, 'w') as f:
             f.write('#EXTM3U\n')
             for track in self.result.tracks:
+                if partial and (not track.isComplete() or
+                                not os.path.isfile(track.filename)):
+                    continue
                 if not track.filename:
                     # false positive htoa
                     continue
@@ -846,18 +862,44 @@ class Program:
                 u = '%s\n' % target_path
                 f.write(u)
 
-    def writeCue(self, discName):
-        assert self.result.table.canCue()
+    def writeCue(self, discName, partial=False):
+        table = self.result.table
+        track_numbers = None
+        if partial:
+            completed = [t for t in self.result.tracks
+                         if t.isComplete() and os.path.isfile(t.filename)]
+            track_numbers = {t.number for t in completed if t.number > 0}
+            if not track_numbers:
+                return None
+            paths = {t.filename for t in completed}
+            table = copy.deepcopy(table)
+            for track in table.tracks:
+                for index in track.indexes.values():
+                    if index.path not in paths:
+                        index.path = None
+        else:
+            assert table.canCue()
         cuePath = common.truncate_filename(discName + '.cue')
         logger.debug('write .cue file to %s', cuePath)
         handle = open(cuePath, 'w')
         # FIXME: do we always want utf-8 ?
-        handle.write(self.result.table.cue(cuePath))
+        handle.write(table.cue(cuePath, track_numbers=track_numbers))
         handle.close()
 
         self.cuePath = cuePath
 
         return cuePath
+
+    def writePartialResults(self, discName, txt_logger):
+        """Write each available artifact even if another one fails."""
+        for name, write in (
+                ('cue', lambda: self.writeCue(discName, partial=True)),
+                ('playlist', lambda: self.write_m3u(discName, partial=True)),
+                ('log', lambda: self.writeLog(discName, txt_logger))):
+            try:
+                write()
+            except Exception as error:
+                logger.error('failed to write partial %s: %s', name, error)
 
     def writeLog(self, discName, txt_logger):
         logPath = common.truncate_filename(discName + '.log')

@@ -25,6 +25,7 @@ import subprocess
 import os
 
 
+from whipper.common import common
 from whipper.extern.task import task as etask
 
 import logging
@@ -42,25 +43,53 @@ class CRC32Task(etask.Task):
     def __init__(self, path, sampleStart=0, sampleLength=-1, is_wave=True):
         self.path = path
         self.is_wave = is_wave
+        self.checksum = None
+        self.sampleCount = None
+        self.sampleRate = None
+        self.channels = None
+        self.sampleWidth = None
 
     def start(self, runner):
         etask.Task.start(self, runner)
         self.schedule(0.0, self._crc32)
 
     def _crc32(self):
-        if not self.is_wave:
-            _, tmpf = tempfile.mkstemp()
+        try:
+            if self.is_wave:
+                self._read_wave(self.path)
+            else:
+                with tempfile.TemporaryDirectory(suffix='.whipper.crc') as tmp:
+                    decoded = os.path.join(tmp, 'decoded.wav')
+                    try:
+                        subprocess.check_call(
+                            ['flac', '-d', self.path, '-fo', decoded])
+                    except subprocess.CalledProcessError as e:
+                        raise common.MissingFrames(
+                            'could not decode %r' % self.path) from e
+                    self._read_wave(decoded)
+        except (wave.Error, EOFError) as e:
+            self.setException(common.MissingFrames(
+                'invalid WAV data in %r: %s' % (self.path, e)))
+        except Exception as e:
+            self.setException(e)
+        finally:
+            self.stop()
 
-            try:
-                subprocess.check_call(['flac', '-d', self.path, '-fo', tmpf])
-
-                w = wave.open(tmpf)
-            finally:
-                os.remove(tmpf)
-        else:
-            w = wave.open(self.path)
-
-        d = w._data_chunk.read()
-
-        self.checksum = binascii.crc32(d) & 0xffffffff
-        self.stop()
+    def _read_wave(self, path):
+        with wave.open(path, 'rb') as audio:
+            samples = audio.getnframes()
+            channels = audio.getnchannels()
+            sample_width = audio.getsampwidth()
+            sample_rate = audio.getframerate()
+            frame_size = channels * sample_width
+            # Hash the WAV byte order; readframes swaps bytes on big-endian hosts.
+            data = audio._data_chunk.read()
+        if not samples or len(data) != samples * frame_size:
+            raise common.MissingFrames(
+                'expected %d PCM bytes in %r, read %d'
+                % (samples * frame_size, self.path, len(data)))
+        self.sampleCount = len(data) // frame_size
+        self.sampleRate = sample_rate
+        self.channels = channels
+        self.sampleWidth = sample_width
+        self.checksum = binascii.crc32(data) & 0xffffffff

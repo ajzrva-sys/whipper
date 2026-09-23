@@ -372,7 +372,7 @@ class Table:
         :returns: ``(True, None)`` when sane, otherwise ``(False, reason)``
         :rtype: tuple(bool, str or None)
         """
-        if not self.hasTOC():
+        if not self.tracks or not self.hasTOC():
             return False, 'incomplete TOC'
 
         previous = None
@@ -383,14 +383,21 @@ class Table:
                 return False, 'track %d has no index 1' % track.number
             if start is None:
                 return False, 'track %d has no absolute index 1' % track.number
-            if previous is not None and start < previous:
+            if start < 0:
+                return False, 'track %d starts before sector zero' % track.number
+            if previous is not None and start <= previous:
                 return False, (
-                    'track %d starts at %d, before previous track end %d'
+                    'track %d starts at %d, not after previous track start %d'
                     % (track.number, start, previous)
                 )
             previous = start
 
         leadout = self.getTrackEnd(self.tracks[-1].number) + 1
+        if leadout <= previous:
+            return False, (
+                'disc leadout %d is not after last track start %d'
+                % (leadout, previous)
+            )
         if leadout is not None and leadout > MAX_CD_SECTORS:
             return False, (
                 'disc leadout %d exceeds libdiscid maximum %d'
@@ -529,7 +536,7 @@ class Table:
         logger.debug('MusicBrainz values: %r', result)
         return result
 
-    def cue(self, cuePath='', program='whipper'):
+    def cue(self, cuePath='', program='whipper', track_numbers=None):
         """
         Dump our internal representation to a .cue file content.
 
@@ -590,28 +597,27 @@ class Table:
 
         # add the first FILE line; EAC always puts the first FILE
         # statement before TRACK 01 and any possible PRE-GAP
-        firstTrack = self.tracks[0]
+        tracks = [t for t in self.tracks if track_numbers is None or
+                  t.number in track_numbers]
+        firstTrack = tracks[0]
         index = firstTrack.getFirstIndex()
-        indexOne = firstTrack.getIndex(1)
         counter = index.counter
         track = firstTrack
 
-        while not index.path:
-            try:
-                t, i = self.getNextTrackIndex(track.number, index.number)
-            except Exception as e:
-                logger.debug('no further indexes after %r/%r: %s',
-                             track.number, index.number, e)
-                break
-            track = self.tracks[t - 1]
-            index = track.getIndex(i)
-            counter = index.counter
+        if not index.path:
+            for candidate in (t.indexes[n] for t in tracks
+                              for n in sorted(t.indexes)):
+                if candidate.path:
+                    index = candidate
+                    counter = index.counter
+                    break
 
         if index.path:
             logger.debug('counter %d, writeFile', counter)
             writeFile(index.path)
 
-        for i, track in enumerate(self.tracks):
+        for track in tracks:
+            i = track.number - 1
             logger.debug('track i %r, track %r', i, track)
             # FIXME: skip data tracks for now
             if not track.audio:
@@ -629,7 +635,8 @@ class Table:
                 # write a FILE statement
                 # it has to be higher, because we can run into the HTOA
                 # at counter 0 here
-                if index.counter > counter:
+                if (index.counter is not None and
+                        (counter is None or index.counter > counter)):
                     if index.path:
                         logger.debug('counter %d, writeFile', counter)
                         writeFile(index.path)
@@ -658,10 +665,11 @@ class Table:
                     # handle TRACK 01 INDEX 00 specially
                     if 0 in indexes:
                         index00 = track.indexes[0]
-                        if i == 0:
+                        if i == 0 or track_numbers is not None:
                             # if we have a silent pre-gap, output it
                             if not index00.path:
-                                length = indexOne.absolute - index00.absolute
+                                length = (track.getIndex(1).absolute -
+                                          index00.absolute)
                                 lines.append("    PREGAP %s" %
                                              common.framesToMSF(length))
                                 continue

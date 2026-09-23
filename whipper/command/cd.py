@@ -352,9 +352,9 @@ Log files will log the path to tracks relative to this directory.
                                  action="store", dest="track_template",
                                  default=DEFAULT_TRACK_TEMPLATE,
                                  help="template for track file naming; "
-                                      "tracks are written under the disc "
-                                      "output directory even if this "
-                                      "template has no directory prefix")
+                                      "filenames without a directory prefix "
+                                      "are written under the disc output "
+                                      "directory")
         self.parser.add_argument('--disc-template',
                                  action="store", dest="disc_template",
                                  default=DEFAULT_DISC_TEMPLATE,
@@ -502,8 +502,7 @@ Log files will log the path to tracks relative to this directory.
             # Issue #453: keep the final component under NAME_MAX after
             # appending the audio extension.
             path = truncate_filename(path)
-            # Issue #692: keep tracks inside the disc folder even when
-            # --track-template has no directory prefix matching --disc-template.
+            # Filename-only templates belong beside the disc's cue and log.
             aligned_path, aligned = align_track_path(
                 path, discName, self.options.track_template)
             if aligned:
@@ -545,7 +544,14 @@ Log files will log the path to tracks relative to this directory.
                 logger.info('verifying track %d of %d: %s',
                             number, len(self.itable.tracks),
                             os.path.basename(path))
-                if not self.program.verifyTrack(self.runner, trackResult):
+                if number == 0:
+                    start, stop = self.program.getHTOA()
+                    expected_frames = stop - start + 1
+                else:
+                    expected_frames = self.itable.getTrackLength(number)
+                if not self.program.verifyTrack(
+                        self.runner, trackResult,
+                        expectedFrames=expected_frames):
                     logger.warning('verification failed, reripping...')
                     os.unlink(path)
 
@@ -680,15 +686,7 @@ Log files will log the path to tracks relative to this directory.
             """Write cue/m3u/log for whatever was ripped before an abort."""
             logger.warning(
                 'rip aborted; writing results for successfully ripped tracks')
-            try:
-                self.program.writeCue(discName)
-                self.program.write_m3u(discName)
-                if len(self.skipped_tracks) > 0:
-                    self.program.skipped_tracks = self.skipped_tracks
-                accurip.print_report(self.program.result)
-                self.program.writeLog(discName, self.logger)
-            except Exception as e:  # noqa: BLE001 - best-effort cleanup
-                logger.error('failed to write partial rip results: %s', e)
+            self.program.writePartialResults(discName, self.logger)
 
         # check for hidden track one audio
         htoa = self.program.getHTOA()
@@ -729,6 +727,7 @@ Log files will log the path to tracks relative to this directory.
                 _ripIfNotRipped(i + 1)
         except Exception:
             # Issue #560: do not throw away tracks that already ripped
+            self.program.result.aborted = True
             _writePartialResults(discName)
             raise
 
@@ -741,17 +740,17 @@ Log files will log the path to tracks relative to this directory.
             logger.debug('deleting cover art file at: %r', self.coverArtPath)
             os.remove(self.coverArtPath)
 
+        if self.skipped_tracks:
+            self.program.writePartialResults(discName, self.logger)
+            logger.warning('%d tracks have been skipped from this rip attempt',
+                           len(self.skipped_tracks))
+            return 5
+
         logger.debug('writing cue file for %r', discName)
         self.program.writeCue(discName)
 
         logger.debug('writing m3u file for %r', discName)
         self.program.write_m3u(discName)
-
-        if len(self.skipped_tracks) > 0:
-            logger.warning("the generated cue sheet references %d track(s) "
-                           "which failed to rip so the associated file(s) "
-                           "won't be available", len(self.skipped_tracks))
-            self.program.skipped_tracks = self.skipped_tracks
 
         try:
             self.program.verifyImage(self.runner, self.itable)
@@ -761,11 +760,6 @@ Log files will log the path to tracks relative to this directory.
         accurip.print_report(self.program.result)
 
         self.program.writeLog(discName, self.logger)
-
-        if len(self.skipped_tracks) > 0:
-            logger.warning('%d tracks have been skipped from this rip attempt',
-                           len(self.skipped_tracks))
-            return 5
 
 
 class CD(BaseCommand):

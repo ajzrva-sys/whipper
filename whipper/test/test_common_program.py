@@ -4,6 +4,7 @@
 
 import os
 import unittest
+import wave
 from unittest import mock
 
 from tempfile import TemporaryDirectory
@@ -15,6 +16,17 @@ DEFAULT_DISC_TEMPLATE = '%r/%A - %d/%A - %d'
 
 
 class PathTestCase(unittest.TestCase):
+
+    def testTemplateUsesDestinationFilenameLimit(self):
+        prog = program.Program(config.Config())
+        with mock.patch('whipper.common.common.name_max_for',
+                        side_effect=lambda p: 143 if p.startswith('/destination')
+                        else 255) as limit:
+            path = prog.getPath('/destination', '%A/%d', 'x' * 300, None)
+        self.assertTrue(all(call.args[0].startswith('/destination')
+                            for call in limit.call_args_list))
+        self.assertLessEqual(len((os.path.basename(path) + '.flac').encode()),
+                             143)
 
     def testStandardTemplateEmpty(self):
         prog = program.Program(config.Config())
@@ -112,6 +124,31 @@ class _FakeRunner:
 class VerifyTrackResumeTestCase(unittest.TestCase):
     """Issue #681: resume must not always re-rip when testcrc is None."""
 
+    def testExistingAudioMustMatchDiscLengthAndFormat(self):
+        from whipper.extern.task.task import SyncRunner
+        from whipper.result.result import TrackResult
+        for samples, rate, channels, width, accepted in (
+                (588, 44100, 2, 2, False),
+                (1176, 48000, 2, 2, False),
+                (1176, 44100, 1, 2, False),
+                (1176, 44100, 2, 1, False),
+                (1176, 44100, 2, 2, True)):
+            with self.subTest(samples=samples, rate=rate,
+                              channels=channels, width=width):
+                with TemporaryDirectory() as directory:
+                    track = TrackResult()
+                    track.filename = os.path.join(directory, 'track.wav')
+                    with wave.open(track.filename, 'wb') as audio:
+                        audio.setnchannels(channels)
+                        audio.setsampwidth(width)
+                        audio.setframerate(rate)
+                        audio.writeframes(b'\0' * (samples * channels * width))
+                    self.assertEqual(program.Program.verifyTrack(
+                        SyncRunner(), track, expectedFrames=2), accepted)
+                    if not accepted:
+                        self.assertIsNone(track.testcrc)
+                        self.assertIsNone(track.copycrc)
+
     def testReuseExistingFileWhenNoPriorCrc(self):
         from whipper.result.result import TrackResult
         track = TrackResult()
@@ -182,6 +219,17 @@ class CoverArtTestCase(unittest.TestCase):
             data = program.fetch_front_image('release-id', 500)
         self.assertEqual(data, payload)
         front.assert_called_once_with('release-id', 500)
+
+    def testBackOnlyImageIsNotUsedAsFront(self):
+        listing = {'images': [{'front': False,
+                               'image': 'https://example.invalid/back.jpg'}]}
+        with mock.patch.object(program.musicbrainzngs, 'get_image_front',
+                               None), \
+                mock.patch.object(program.musicbrainzngs, 'get_image_list',
+                                  return_value=listing), \
+                mock.patch('urllib.request.urlopen') as fetch:
+            self.assertIsNone(program.fetch_front_image('release-id'))
+        fetch.assert_not_called()
 
     def testFetchFrontImageFallbackWithoutGetImageFront(self):
         """Issue #554: some musicbrainzngs builds lack get_image_front."""

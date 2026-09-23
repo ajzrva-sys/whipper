@@ -5,9 +5,12 @@
 
 import os
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from whipper.image import image as image_mod
+from whipper.common import program
+from whipper.result.result import RipResult, TrackResult
 
 
 class FakeIndex:
@@ -47,6 +50,34 @@ class FakeImage:
 
 
 class ImageVerifyMissingFileTestCase(unittest.TestCase):
+
+    def testMissingFirstFileDoesNotShiftAccurateRipChecksums(self):
+        prog = program.Program.__new__(program.Program)
+        prog.cuePath = '/tmp/disc.cue'
+        prog.skipped_tracks = None
+        prog.result = RipResult()
+        for number in (1, 2):
+            track = TrackResult()
+            track.number = number
+            prog.result.tracks.append(track)
+        cue = FakeImage([FakeTrack(None, 1), FakeTrack('02.flac', 2)])
+        cue.accuraterip_path = 'test-entry'
+        response = SimpleNamespace(cddbDiscId='test-disc', confidences=[1, 1],
+                                   checksums=['11111111', '22222222'])
+        with mock.patch.object(program.image, 'Image', return_value=cue), \
+                mock.patch.object(program.image, 'ImageVerifyTask',
+                                  return_value=SimpleNamespace(exception=None)), \
+                mock.patch.object(program.accurip, 'get_db_entry',
+                                  return_value=[response]), \
+                mock.patch('whipper.common.accurip.os.path.exists',
+                           return_value=True), \
+                mock.patch.object(program.accurip, 'accuraterip_checksum',
+                                  return_value=(0x22222222, 0x22222222)) as crc:
+            verified = prog.verifyImage(mock.Mock(), mock.Mock())
+        self.assertFalse(verified)
+        crc.assert_called_once_with('/tmp/02.flac', 2, 2)
+        self.assertIsNone(prog.result.tracks[0].AR['v1']['CRC'])
+        self.assertEqual(prog.result.tracks[1].AR['v1']['CRC'], '22222222')
 
     def testConstructorSkipsUnresolvablePath(self):
         """Missing cue FILE paths must not raise KeyError (#508)."""

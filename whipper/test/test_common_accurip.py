@@ -54,6 +54,15 @@ class TestAccurateRipResponse(TestCase):
 
 
 class TestCalculateChecksums(TestCase):
+    def test_missing_path_preserves_track_position(self):
+        with patch('whipper.common.accurip.os.path.exists', return_value=True), \
+                patch('whipper.common.accurip.accuraterip_checksum',
+                      return_value=(0x12345678, 0x87654321)) as checksum:
+            values = calculate_checksums([None, 'second.flac'])
+        checksum.assert_called_once_with('second.flac', 2, 2)
+        self.assertEqual(values, {'v1': [None, '12345678'],
+                                  'v2': [None, '87654321']})
+
     def test_returns_none_for_bad_files(self):
         self.assertEqual(
             calculate_checksums(['/does/not/exist']),

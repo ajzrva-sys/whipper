@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 from ruamel.yaml.comments import CommentedMap as OrderedDict
+from ruamel.yaml.error import YAMLError
 
 import whipper
 
@@ -42,21 +43,33 @@ def is_complete_rip_log(path):
         if os.path.getsize(path) <= 0:
             return False
         with open(path, 'r', encoding='utf-8', errors='replace') as handle:
-            # Completeness markers are at the end; read a bounded tail.
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            handle.seek(max(0, size - 8192), os.SEEK_SET)
-            tail = handle.read()
-            handle.seek(0)
-            head = handle.read(2048)
+            text = handle.read()
     except OSError:
         return False
 
-    text = head + '\n' + tail
     if not all(marker in text for marker in LOG_START_MARKERS):
         return False
-    # At least one end marker written only after the log body is finished
-    return any(marker in tail or marker in text for marker in LOG_END_MARKERS)
+    if not any(marker in text for marker in LOG_END_MARKERS):
+        return False
+    try:
+        data = YAML().load(text)
+        status = data['Conclusive status report']
+        tracks = data['Tracks']
+        if status.get('Rip completed') is False or not tracks:
+            return False
+        for track in tracks.values():
+            if (not str(track.get('Status', '')).startswith('Copy OK') or
+                    track.get('Test CRC') is None or
+                    track.get('Test CRC') != track.get('Copy CRC')):
+                return False
+        if 'Rip completed' not in status:
+            # Older logs have no completion flag. Require their entire TOC.
+            expected = {number for number in data['TOC'] if number != 0}
+            if not expected or not expected <= tracks.keys():
+                return False
+    except (YAMLError, KeyError, TypeError, AttributeError):
+        return False
+    return True
 
 
 def _format_drive(vendor, model, release):
@@ -106,8 +119,8 @@ class WhipperLogger(result.Logger):
         * ``corrections only`` — re-reads/patches; usually not lossy
         * ``severe recoverable errors`` — transport/cache errors that
           paranoia may have corrected (progress bar 'e')
-        * ``definitely lossy (uncorrected/skipped): …`` — skip/scratch/
-          scsi_read error (progress bar 'V'); CRC match does not prove
+        * ``definitely lossy (uncorrected/skipped): …`` — skip/scratch
+          (progress bar 'V'); CRC match does not prove
           the audio is correct
         """
         if lossy_names:
@@ -115,7 +128,7 @@ class WhipperLogger(result.Logger):
                 ', '.join(lossy_names),)
         if severe:
             return ("severe recoverable errors "
-                    "(transport/cache; verify against AccurateRip)")
+                    "(transport/cache/read; verify against AccurateRip)")
         if corrections:
             return "corrections only"
         return "clean"
@@ -248,19 +261,21 @@ class WhipperLogger(result.Logger):
 
         # Health status (issue #294), using libcdio-paranoia semantics:
         # - CRC mismatch always means errors.
-        # - Definitely-lossy events (skip / scratch / scsi_read error;
+        # - Definitely-lossy events (skip / scratch;
         #   progress bar 'V') can be wrong even when test and copy CRCs
         #   match, because both passes may agree on the same bad fill.
         #   Treat as errors.
-        # - Severe recoverable events (transport error / cache error;
+        # - Severe recoverable events (transport / cache / raw read errors;
         #   progress bar 'e') still force "There were errors" so archival
         #   users notice; AccurateRip can confirm the result.
         # - Corrections-only rips usually recover; keep "No errors occurred"
         #   for compatibility. Event counts and suspicious positions remain
         #   on each track; see also "cdparanoia health" above.
-        if self._errors or self._cdparanoiaSevere:
+        complete = ripResult.isComplete()
+        data['Rip completed'] = complete
+        if self._errors or self._cdparanoiaSevere or ripResult.aborted:
             message = "There were errors"
-        elif self._skippedTracks:
+        elif self._skippedTracks or not complete:
             message = "Some tracks were not ripped (skipped)"
         else:
             message = "No errors occurred"
@@ -414,6 +429,9 @@ class WhipperLogger(result.Logger):
             track["Status"] = "Track not ripped (skipped)"
             self._skippedTracks = True
         # Check if Test & Copy CRCs are equal
+        elif trackResult.testcrc is None or trackResult.copycrc is None:
+            self._errors = True
+            track['Status'] = 'Error, missing CRC'
         elif trackResult.testcrc == trackResult.copycrc:
             if lossy_names:
                 track["Status"] = (

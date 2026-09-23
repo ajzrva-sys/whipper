@@ -142,8 +142,8 @@ SEVERE_FUNCTIONS = DEFINITELY_LOSSY_FUNCTIONS | SEVERE_RECOVERABLE_FUNCTIONS
 
 # Raw SCSI-layer failures printed outside the callback protocol.
 SCSI_ERROR_NAME = 'scsi_read error'
-# scsi_read errors are treated as definitely lossy unless proven otherwise.
-LOSSY_EVENT_NAMES = DEFINITELY_LOSSY_FUNCTIONS | {SCSI_ERROR_NAME}
+# SCSI diagnostics can precede a successful retry; they do not prove data loss.
+LOSSY_EVENT_NAMES = DEFINITELY_LOSSY_FUNCTIONS
 
 # Backwards-compatible aliases
 _ROUTINE_FUNCTIONS = ROUTINE_FUNCTIONS
@@ -161,7 +161,7 @@ def classify_cdparanoia_events(events):
       - ``severe``: total count of severe events (lossy + recoverable)
       - ``corrections``: total count of re-read/patch events
       - ``lossy_names``: sorted names of definitely-lossy events present
-        (skip, scratch, scsi_read error) — these can make a rip wrong
+        (skip, scratch) — these can make a rip wrong
         even when CRCs match
     :rtype: tuple(int, int, list(str))
     """
@@ -171,10 +171,11 @@ def classify_cdparanoia_events(events):
     for name, count in (events or {}).items():
         if not count:
             continue
-        if name in DEFINITELY_LOSSY_FUNCTIONS or name == SCSI_ERROR_NAME:
+        if name in DEFINITELY_LOSSY_FUNCTIONS:
             severe += count
             lossy_names.add(name)
-        elif name in SEVERE_RECOVERABLE_FUNCTIONS:
+        elif (name in SEVERE_RECOVERABLE_FUNCTIONS or
+              name == SCSI_ERROR_NAME):
             severe += count
         elif name in CORRECTION_FUNCTIONS:
             corrections += count
@@ -256,7 +257,8 @@ class ProgressParser:
             self.corrections += 1
             return
 
-        if wordOffset < 0:
+        # The overlap callback reports a window size, not a disc position.
+        if function == 'overlap' or wordOffset < 0:
             return
         frame = wordOffset // common.WORDS_PER_FRAME
         if self.start <= frame <= self.stop:

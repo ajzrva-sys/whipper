@@ -3,6 +3,7 @@
 
 import os
 import tempfile
+from unittest import mock
 
 from whipper.common import common
 
@@ -111,15 +112,27 @@ class AlignTrackPathTestCase(tcommon.TestCase):
             path,
             '/out/Artist - Album/01. Speed of Life.flac')
 
-    def testHierarchicalTemplateOutsideDiscDirUsesBasename(self):
+    def testHierarchicalTemplateOutsideDiscDirIsPreserved(self):
         disc = '/out/Artist - Album/Artist - Album'
         track = '/out/subdir/01. Title.flac'
         path, aligned = common.align_track_path(
             track, disc, 'subdir/%t. %n')
-        self.assertTrue(aligned)
-        self.assertEqual(
-            path,
-            '/out/Artist - Album/01. Title.flac')
+        self.assertFalse(aligned)
+        self.assertEqual(path, track)
+
+    def testTrackDirectoriesKeepDuplicateTitlesDistinct(self):
+        disc = '/out/Album/Album'
+        tracks = ['/out/01/Intro.flac', '/out/02/Intro.flac']
+        paths = [common.align_track_path(track, disc, '%t/%n')[0]
+                 for track in tracks]
+        self.assertEqual(paths, tracks)
+        self.assertNotEqual(paths[0], paths[1])
+
+    def testAbsoluteTemplateIsPreserved(self):
+        path, aligned = common.align_track_path(
+            '/01.flac', '/out/Album/Album', '/%t')
+        self.assertEqual(path, '/01.flac')
+        self.assertFalse(aligned)
 
 
 class TruncateFilenameTestCase(tcommon.TestCase):
@@ -169,3 +182,17 @@ class TruncateFilenameTestCase(tcommon.TestCase):
             if part:
                 self.assertLessEqual(len(part.encode('utf-8')), 255)
         self.assertEqual(len(parts), 2)
+
+    def testTruncatePathUsesDestinationFilesystem(self):
+        def name_limit(directory):
+            return 143 if directory.startswith('/destination') else 255
+
+        path = os.path.join('/destination', 'D' * 200, 'F' * 200)
+        with mock.patch.object(common, 'name_max_for',
+                               side_effect=name_limit):
+            result = common.truncate_path_components(path)
+
+        parts = result.split(os.sep)
+        self.assertEqual(parts[:2], ['', 'destination'])
+        self.assertEqual(len(parts[2]), 143)
+        self.assertEqual(len(parts[3]), 143 - common.EXTENSION_RESERVE)

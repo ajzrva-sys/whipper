@@ -5,8 +5,31 @@ import os
 import json
 
 import unittest
+from unittest import mock
 
 from whipper.common import mbngs
+
+
+class LookupIncludesTestCase(unittest.TestCase):
+
+    def testReleaseLookupUsesSupportedIncludes(self):
+        filename = 'whipper.release.c56ff16e-1d81-47de-926f-ba22891bd2bd.json'
+        with open(os.path.join(os.path.dirname(__file__), filename)) as handle:
+            response = json.load(handle)
+        # Mock HTTP below musicbrainzngs' include validation.
+        with mock.patch('musicbrainzngs.musicbrainz._mb_request',
+                        return_value=response) as request:
+            metadata = mbngs.getReleaseMetadata(
+                response['release']['id'], 'b.yqPuCBdsV5hrzDvYrw52iK_jE-')
+        request.assert_called_once()
+        self.assertEqual(metadata.tracks[0].title, 'Brownsville Turnaround')
+
+    def testDiscLookupUsesSupportedIncludes(self):
+        with mock.patch('musicbrainzngs.musicbrainz._mb_request',
+                        return_value={'disc': {'release-list': []}}) as request:
+            metadata = mbngs.musicbrainz('b.yqPuCBdsV5hrzDvYrw52iK_jE-')
+        request.assert_called_once()
+        self.assertEqual(metadata, [])
 
 
 class MetadataTestCase(unittest.TestCase):

@@ -413,8 +413,7 @@ def getReleaseMetadata(release_id, discid=None, country=None, record=False):
                                   "recordings", "discids",
                                   "labels", "recording-level-rels",
                                   "work-rels", "release-groups",
-                                  "work-level-rels", "artist-rels",
-                                  "genres"])
+                                  "work-level-rels", "artist-rels"])
     _record(record, 'release', release_id, res)
     releaseDetail = res['release']
     formatted = json.dumps(releaseDetail, sort_keys=False, indent=4)
@@ -446,8 +445,7 @@ def musicbrainz(discid, country=None, record=False):
 
     try:
         result = musicbrainzngs.get_releases_by_discid(
-            discid, includes=["artists", "recordings", "release-groups",
-                              "genres"])
+            discid, includes=["artists", "recordings", "release-groups"])
     except musicbrainzngs.ResponseError as e:
         if isinstance(e.cause, HTTPError):
             if e.cause.code == 404:

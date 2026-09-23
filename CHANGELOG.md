@@ -2,6 +2,25 @@
 
 ## [v0.12.0](https://github.com/ajzrva-sys/whipper/tree/release/v0.12.0) (unreleased)
 
+**PR review corrections:**
+
+- Keep partial cue sheets and playlists limited to completed audio. Report
+  missing CRCs as failures and leave aborted or skipped rips available to retry.
+- Check existing audio against the disc's track length and CD audio format
+  before reusing it. Reject empty and truncated decoded audio.
+- Preserve track positions in AccurateRip checksum results when a FILE path
+  is missing. Reject negative or duplicate TOC starts and invalid leadouts.
+- Preserve explicit track directories, and use the destination filesystem's
+  filename limit when shortening template paths.
+- Remove unsupported MusicBrainz `genres` requests so ordinary metadata lookup
+  works with musicbrainzngs 0.7.1. Live genre retrieval remains unfinished;
+  existing genre values can still be written to tags. Keep the disc ID on
+  unknown releases and don't substitute back art for a missing front cover.
+- Retain cdrdao stderr after parsing and decode soxi errors safely. Count
+  overlap adjustments without treating window sizes as audio positions, and
+  keep raw SCSI retry diagnostics separate from confirmed lossy callbacks.
+- Match FreeBSD mounted devices exactly and handle unavailable unmount tools.
+
 **Implemented enhancements:**
 
 - **Python 3.11 floor** — dropped the dead `>=3.6` / Travis 3.5–3.10 matrix;

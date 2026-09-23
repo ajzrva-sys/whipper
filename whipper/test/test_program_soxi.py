@@ -1,6 +1,7 @@
 # -*- Mode: Python; test-case-name: whipper.test.test_program_sox -*-
 
 import os
+import unittest
 import tempfile
 
 from whipper.common import common
@@ -59,3 +60,26 @@ class AbsentFileAudioLengthPathTestCase(AudioLengthPathTestCase):
                           t, verbose=False)
 
         os.rmdir(tempdir)
+
+
+class AudioLengthOutputTestCase(unittest.TestCase):
+
+    def testWarningBytesDoNotPreventLengthParsing(self):
+        task = AudioLengthTask('/unused.wav')
+        task.readbytesout(b'44100\n')
+        task.readbyteserr(b'soxi WARN: invalid byte \xff\n')
+
+        with self.assertLogs('whipper.program.soxi', level='WARNING') as logs:
+            task.done()
+
+        self.assertEqual(task.length, 44100)
+        self.assertIn('invalid byte \ufffd', logs.output[0])
+
+    def testFailureIncludesDecodedStderr(self):
+        task = AudioLengthTask('/unused.wav')
+        task.readbyteserr(b'soxi FAIL: cannot open \xff\n')
+
+        task.failed()
+
+        self.assertIsNotNone(task.exception)
+        self.assertIn('soxi FAIL: cannot open \ufffd', str(task.exception))

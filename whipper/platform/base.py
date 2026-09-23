@@ -187,9 +187,8 @@ class Platform:
         try:
             subprocess.check_output(['umount', device],
                                     stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError as e:
-            logger.warning("command '%s' returned with exit code '%d' (%s)",
-                           ' '.join(e.cmd), e.returncode, e.output.rstrip())
+        except (OSError, subprocess.CalledProcessError) as e:
+            logger.warning('could not unmount %s: %s', device, e)
 
     # -- tooling ----------------------------------------------------------
 

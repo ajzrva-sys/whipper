@@ -44,7 +44,7 @@ class AudioLengthTask(ctask.PopenTask):
         self._output.append(bytes_stdout)
 
     def readbyteserr(self, bytes_stderr):
-        self._error.append(bytes_stderr)
+        self._error.append(bytes_stderr.decode('utf-8', errors='replace'))
 
     def failed(self):
         self.setException(Exception("soxi failed: %s" % "".join(self._error)))

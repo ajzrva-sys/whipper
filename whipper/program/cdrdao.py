@@ -163,6 +163,7 @@ class ReadTOCTask(task.Task):
         self.fast_toc = fast_toc
         self.toc_path = toc_path
         self._buffer = ""  # accumulate characters
+        self._stderr_tail = ""
         self._parser = ProgressParser()
 
         self.fd, self.tocfile = tempfile.mkstemp(
@@ -195,7 +196,9 @@ class ReadTOCTask(task.Task):
             self.schedule(0.01, self._read, runner)
             return
         # Issue #654: cdrdao stderr can contain non-UTF-8 bytes
-        self._buffer += ret.decode('utf-8', errors='replace')
+        text = ret.decode('utf-8', errors='replace')
+        self._buffer += text
+        self._stderr_tail = (self._stderr_tail + text)[-500:]
 
         # parse buffer into lines if possible, and parse them
         if "\n" in self._buffer:
@@ -233,7 +236,7 @@ class ReadTOCTask(task.Task):
         # reader races on the same drive.
         rc = getattr(self._popen, 'returncode', None)
         if not os.path.isfile(self.tocfile):
-            stderr_tail = (self._buffer or '')[-500:]
+            stderr_tail = getattr(self, '_stderr_tail', self._buffer)[-500:]
             logger.error(
                 'cdrdao did not produce a TOC file %r (returncode=%s). '
                 'Is a disc in %r? Concurrent ripper running? stderr: %s',

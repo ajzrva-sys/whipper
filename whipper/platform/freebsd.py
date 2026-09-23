@@ -147,11 +147,13 @@ class FreeBSDPlatform(base.Platform):
         # /proc/mounts does not exist; use mount(8) output (issue #686).
         try:
             mounts = subprocess.check_output(
-                ['mount'], stderr=subprocess.DEVNULL).decode(errors='replace')
+                ['mount', '-p'],
+                stderr=subprocess.DEVNULL).decode(errors='replace')
         except (OSError, subprocess.CalledProcessError) as e:
             logger.debug('could not read mount table via mount(8): %s', e)
             return False
-        return device in mounts
+        return any(line.split() and line.split()[0] == device
+                   for line in mounts.splitlines())
 
     def cdrdao_driver_args(self):
         return ['--driver', CDRDAO_DRIVER]

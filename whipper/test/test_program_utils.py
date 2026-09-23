@@ -41,8 +41,8 @@ class FreeBSDUnmountTestCase(common.TestCase):
 
         def fake_check_output(cmd, **kwargs):
             calls.append(list(cmd))
-            if list(cmd) == ['mount']:
-                return b'/dev/cd0 on /mnt (cd9660, local, noatime)\n'
+            if list(cmd) == ['mount', '-p']:
+                return b'/dev/cd0 /mnt cd9660 ro,noatime 0 0\n'
             return b''
 
         p = freebsd.FreeBSDPlatform()
@@ -51,7 +51,7 @@ class FreeBSDUnmountTestCase(common.TestCase):
              mock.patch('subprocess.check_output',
                         side_effect=fake_check_output):
             p.unmount('/dev/cd0')
-        self.assertEqual(calls[0], ['mount'])
+        self.assertEqual(calls[0], ['mount', '-p'])
         self.assertEqual(calls[1], ['umount', '/dev/cd0'])
 
     def test_no_open_proc_mounts(self):
@@ -63,7 +63,8 @@ class FreeBSDUnmountTestCase(common.TestCase):
              mock.patch('whipper.platform.freebsd.subprocess.check_output',
                         return_value=b'(nothing mounted here)\n') as co:
             p.unmount('/dev/cd0')
-            co.assert_called_once_with(['mount'], stderr=subprocess.DEVNULL)
+            co.assert_called_once_with(['mount', '-p'],
+                                       stderr=subprocess.DEVNULL)
 
     def test_mount_failure_is_soft(self):
         p = freebsd.FreeBSDPlatform()

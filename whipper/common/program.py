@@ -471,11 +471,11 @@ class Program:
 
         tags = {}
 
-        # Issue #485: HTOA (track 0) previously omitted all MusicBrainz IDs,
-        # so media players treated it as a separate disc. Always tag disc id
-        # and album-level MBIDs; track-level IDs stay on real tracks.
-        if self.metadata:
+        # The disc ID is available even when MusicBrainz has no release.
+        # Include it on HTOA too; track-level IDs stay on real tracks.
+        if mbdiscid:
             tags['MUSICBRAINZ_DISCID'] = mbdiscid
+        if self.metadata:
             tags['ALBUMARTIST'] = releaseArtist
         tags['ARTIST'] = trackArtist
         tags['TITLE'] = title

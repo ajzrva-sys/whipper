@@ -239,14 +239,18 @@ def _getPerformers(recording):
 
 def _genre_names(entity):
     """
-    Extract genre name list from a MusicBrainz release or release-group.
+    Extract genre names or legacy folksonomy tags from an MB entity.
 
-    :param entity: MB entity that may contain ``genre-list``
+    MusicBrainzNGS 0.7.1 supports ``tags`` and parses ``tag-list``, but
+    does not support the ``genres`` include. Tags include genres and may
+    also contain other user-supplied classifications.
+
+    :param entity: MB entity with ``genre-list`` or ``tag-list``
     :type entity: dict
     :rtype: list(str)
     """
     names = []
-    for genre in entity.get('genre-list') or []:
+    for genre in (entity.get('genre-list') or entity.get('tag-list') or []):
         name = genre.get('name')
         if name and name not in names:
             names.append(name)
@@ -413,13 +417,27 @@ def getReleaseMetadata(release_id, discid=None, country=None, record=False):
                                   "recordings", "discids",
                                   "labels", "recording-level-rels",
                                   "work-rels", "release-groups",
-                                  "work-level-rels", "artist-rels",
-                                  "genres"])
+                                  "work-level-rels", "artist-rels", "tags"])
     _record(record, 'release', release_id, res)
     releaseDetail = res['release']
     formatted = json.dumps(releaseDetail, sort_keys=False, indent=4)
     logger.debug('release %s', formatted)
-    return _getMetadata(releaseDetail, discid, country)
+    metadata = _getMetadata(releaseDetail, discid, country)
+    if metadata and not metadata.genres:
+        # Release lookups need not return tags for the linked release-group.
+        # This extra metadata is optional: an unavailable group must not make
+        # an otherwise usable release lookup fail.
+        try:
+            group_result = musicbrainzngs.get_release_group_by_id(
+                metadata.mbidReleaseGroup, includes=["tags"])
+        except musicbrainzngs.MusicBrainzError as e:
+            logger.warning('could not retrieve release-group tags: %s', e)
+        else:
+            _record(record, 'release-group', metadata.mbidReleaseGroup,
+                    group_result)
+            metadata.genres = _genre_names(
+                group_result.get('release-group') or {})
+    return metadata
 
 
 # see http://bugs.musicbrainz.org/browser/python-musicbrainz2/trunk/examples/
@@ -446,8 +464,7 @@ def musicbrainz(discid, country=None, record=False):
 
     try:
         result = musicbrainzngs.get_releases_by_discid(
-            discid, includes=["artists", "recordings", "release-groups",
-                              "genres"])
+            discid, includes=["artists", "recordings", "release-groups"])
     except musicbrainzngs.ResponseError as e:
         if isinstance(e.cause, HTTPError):
             if e.cause.code == 404:

@@ -5,8 +5,174 @@ import os
 import json
 
 import unittest
+from unittest import mock
+from urllib.error import HTTPError
+
+import musicbrainzngs
 
 from whipper.common import mbngs
+
+
+class MetadataRequestTestCase(unittest.TestCase):
+    """Exercise installed client include validation without networking."""
+
+    release_id = '410f99f8-a876-3416-bd8e-42233a00a477'
+    group_id = 'f27cadab-ab3a-3e67-a24e-3a67b68840f2'
+    discid = 'bIOeHwHT0aZJiENIYjAmoNxCPuA-'
+    release_includes = {
+        'artists', 'artist-credits', 'recordings', 'discids', 'labels',
+        'recording-level-rels', 'work-rels', 'release-groups',
+        'work-level-rels', 'artist-rels', 'tags',
+    }
+
+    def setUp(self):
+        filename = 'whipper.release.' + self.release_id + '.json'
+        with open(os.path.join(os.path.dirname(__file__), filename)) as handle:
+            self.response = json.load(handle)
+        patcher = mock.patch('musicbrainzngs.musicbrainz._mb_request')
+        self.request = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _lookup(self):
+        return mbngs.getReleaseMetadata(self.release_id, self.discid)
+
+    def _assertRequest(self, index, entity, identifier, includes):
+        call = self.request.call_args_list[index]
+        self.assertEqual(call[0][:2], (entity + '/' + identifier, 'GET'))
+        self.assertEqual(set(call[1]['args']['inc'].split()), includes)
+
+    def _assertMetadata(self, metadata, genres):
+        self.assertEqual(metadata.mbid, self.release_id)
+        self.assertEqual(metadata.artist, 'Lenny Kravitz')
+        self.assertEqual(len(metadata.tracks), 14)
+        self.assertEqual(metadata.genres, genres)
+
+    def testGenreNamesPreferGenresThenLegacyTags(self):
+        for entity, expected in [
+                ({'genre-list': [{'name': 'Rock'}, {'name': 'Rock'}, {},
+                                 {'name': ''}],
+                  'tag-list': [{'name': 'Other'}]}, ['Rock']),
+                ({'genre-list': [],
+                  'tag-list': [{'name': 'Soul'}, {'name': 'Soul'}, {},
+                               {'name': None}]}, ['Soul']),
+                ({}, [])]:
+            with self.subTest(entity=entity):
+                self.assertEqual(mbngs._genre_names(entity), expected)
+
+    def testReleaseTagsUseSupportedRequest(self):
+        self.response['release']['tag-list'] = [{'name': 'Rock'}]
+        self.request.return_value = self.response
+
+        self._assertMetadata(self._lookup(), ['Rock'])
+
+        self.assertEqual(self.request.call_count, 1)
+        self._assertRequest(0, 'release', self.release_id,
+                            self.release_includes)
+
+    def testReleaseGroupTagsFallback(self):
+        group = {'release-group': {'tag-list': [{'name': 'Soul'}]}}
+        self.request.side_effect = [self.response, group]
+
+        self._assertMetadata(self._lookup(), ['Soul'])
+
+        self.assertEqual(self.request.call_count, 2)
+        self._assertRequest(1, 'release-group', self.group_id, {'tags'})
+
+    def testDirectReleaseGenreList(self):
+        self.response['release']['genre-list'] = [{'name': 'Rock'}]
+        self.response['release']['tag-list'] = [{'name': 'Other'}]
+        self.request.return_value = self.response
+
+        self._assertMetadata(self._lookup(), ['Rock'])
+        self.assertEqual(self.request.call_count, 1)
+
+    def testEmbeddedReleaseGroupGenreList(self):
+        group = self.response['release']['release-group']
+        group['genre-list'] = [{'name': 'Soul'}]
+        self.request.return_value = self.response
+
+        self._assertMetadata(self._lookup(), ['Soul'])
+        self.assertEqual(self.request.call_count, 1)
+
+    def testDirectReleaseGroupGenreList(self):
+        group = {'release-group': {'genre-list': [{'name': 'Soul'}],
+                                   'tag-list': [{'name': 'Other'}]}}
+        self.request.side_effect = [self.response, group]
+
+        self._assertMetadata(self._lookup(), ['Soul'])
+        self.assertEqual(self.request.call_count, 2)
+
+    def testMissingGenresPreserveMetadata(self):
+        for group in ({}, {'release-group': {}},
+                      {'release-group': {'tag-list': []}}):
+            with self.subTest(group=group):
+                self.request.reset_mock()
+                self.request.side_effect = [self.response, group]
+                self._assertMetadata(self._lookup(), [])
+                self.assertEqual(self.request.call_count, 2)
+
+    def testOptionalGroupFailuresPreserveMetadata(self):
+        for error_type in (musicbrainzngs.ResponseError,
+                           musicbrainzngs.NetworkError):
+            with self.subTest(error=error_type.__name__):
+                self.request.reset_mock()
+                self.request.side_effect = [self.response,
+                                            error_type('unavailable')]
+                self._assertMetadata(self._lookup(), [])
+                self.assertEqual(self.request.call_count, 2)
+
+    def testCountryFilterSkipsOptionalRequest(self):
+        self.request.return_value = self.response
+
+        metadata = mbngs.getReleaseMetadata(self.release_id, self.discid,
+                                            country='US')
+
+        self.assertIsNone(metadata)
+        self.assertEqual(self.request.call_count, 1)
+
+    def testDiscIdentificationUsesSupportedRequests(self):
+        disc = {'disc': {'release-list': [self.response['release']]}}
+        group = {'release-group': {'tag-list': [{'name': 'Soul'}]}}
+        self.request.side_effect = [disc, self.response, group]
+
+        results = mbngs.musicbrainz(self.discid)
+
+        self.assertEqual(len(results), 1)
+        self._assertMetadata(results[0], ['Soul'])
+        self.assertEqual(self.request.call_count, 3)
+        self._assertRequest(0, 'discid', self.discid,
+                            {'artists', 'recordings', 'release-groups'})
+        self._assertRequest(1, 'release', self.release_id,
+                            self.release_includes)
+        self._assertRequest(2, 'release-group', self.group_id, {'tags'})
+
+    def testUnknownDisc404RemainsNotFound(self):
+        cause = HTTPError('https://musicbrainz.org', 404, 'not found',
+                          None, None)
+        self.request.side_effect = musicbrainzngs.ResponseError(
+            'not found', cause=cause)
+
+        with self.assertRaises(mbngs.NotFoundException):
+            mbngs.musicbrainz(self.discid)
+        self.assertEqual(self.request.call_count, 1)
+
+    def testCDStubRemainsUnknown(self):
+        self.request.return_value = {'cdstub': {'title': 'Unknown release'}}
+
+        self.assertIsNone(mbngs.musicbrainz(self.discid))
+        self.assertEqual(self.request.call_count, 1)
+
+    def testRecordsOptionalGroupResponse(self):
+        group = {'release-group': {'tag-list': [{'name': 'Soul'}]}}
+        self.request.side_effect = [self.response, group]
+
+        with mock.patch.object(mbngs, '_record') as record:
+            mbngs.getReleaseMetadata(self.release_id, self.discid, record=True)
+
+        self.assertEqual(record.call_args_list, [
+            mock.call(True, 'release', self.release_id, self.response),
+            mock.call(True, 'release-group', self.group_id, group),
+        ])
 
 
 class MetadataTestCase(unittest.TestCase):

@@ -123,12 +123,46 @@ class GetTagListTestCase(unittest.TestCase):
         self.assertEqual(tags['TITLE'], 'Think Long')
         self.assertEqual(tags['GENRE'], ['Indie Pop', 'Indie Rock'])
 
-    def testUnknownDiscNoCrash(self):
+    def testUnknownDiscPreservesDiscid(self):
         prog = program_mod.Program.__new__(program_mod.Program)
         prog.metadata = None
-        tags = prog.getTagList(0, 'mbid')
-        self.assertEqual(tags['TITLE'], 'Unknown Track')
-        self.assertNotIn('MUSICBRAINZ_DISCID', tags)
+        for number in (0, 1):
+            with self.subTest(number=number):
+                tags = prog.getTagList(number, 'discid123')
+                self.assertEqual(tags['MUSICBRAINZ_DISCID'], 'discid123')
+                self.assertEqual(tags['TITLE'], 'Unknown Track')
+                self.assertEqual(tags['ARTIST'], 'Unknown Artist')
+                self.assertEqual(tags['ALBUM'], 'Unknown Album')
+                self.assertEqual(tags['TRACKNUMBER'], str(number))
+                self.assertNotIn('MUSICBRAINZ_ALBUMID', tags)
+                self.assertNotIn('MUSICBRAINZ_TRACKID', tags)
+                self.assertNotIn('MUSICBRAINZ_RELEASETRACKID', tags)
+                self.assertNotIn('GENRE', tags)
+
+    def testUnknownDiscWithoutDiscid(self):
+        prog = program_mod.Program.__new__(program_mod.Program)
+        prog.metadata = None
+        for number in (0, 1):
+            for discid in (None, ''):
+                with self.subTest(number=number, discid=discid):
+                    tags = prog.getTagList(number, discid)
+                    self.assertEqual(tags['TITLE'], 'Unknown Track')
+                    self.assertEqual(tags['TRACKNUMBER'], str(number))
+                    self.assertNotIn('MUSICBRAINZ_DISCID', tags)
+
+    def testMissingGenresKeepOtherMetadata(self):
+        for genres in (None, []):
+            for number in (0, 1):
+                with self.subTest(genres=genres, number=number):
+                    prog = self._program_with_meta()
+                    prog.metadata.genres = genres
+                    tags = prog.getTagList(number, 'discid123')
+                    self.assertNotIn('GENRE', tags)
+                    self.assertEqual(tags['MUSICBRAINZ_DISCID'], 'discid123')
+                    self.assertEqual(tags['MUSICBRAINZ_ALBUMID'],
+                                     'release-mbid')
+                    self.assertEqual(tags['TITLE'], 'Think Long' if number
+                                     else 'Hidden Track One Audio')
 
 
 class SkipHtoaOptionTestCase(unittest.TestCase):

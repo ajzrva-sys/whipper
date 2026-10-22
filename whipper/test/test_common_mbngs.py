@@ -60,7 +60,10 @@ class MetadataRequestTestCase(unittest.TestCase):
                 self.assertEqual(mbngs._genre_names(entity), expected)
 
     def testReleaseTagsUseSupportedRequest(self):
-        self.response['release']['tag-list'] = [{'name': 'Rock'}]
+        self.response['release']['tag-list'] = [
+            {'name': 'political'}, {'name': 'Rock'}, {'name': 'favorite'},
+            {'name': 'acoustic'},
+        ]
         self.request.return_value = self.response
 
         self._assertMetadata(self._lookup(), ['Rock'])
@@ -70,13 +73,44 @@ class MetadataRequestTestCase(unittest.TestCase):
                             self.release_includes)
 
     def testReleaseGroupTagsFallback(self):
-        group = {'release-group': {'tag-list': [{'name': 'Soul'}]}}
+        self.response['release']['tag-list'] = [{'name': 'political'}]
+        group = {'release-group': {'tag-list': [
+            {'name': 'favorite'}, {'name': 'Soul'}, {'name': 'acoustic'},
+        ]}}
         self.request.side_effect = [self.response, group]
 
         self._assertMetadata(self._lookup(), ['Soul'])
 
         self.assertEqual(self.request.call_count, 2)
         self._assertRequest(1, 'release-group', self.group_id, {'tags'})
+
+    def testLegacyGenresMatchAndDeduplicateWithoutCase(self):
+        entity = {'tag-list': [
+            {'name': 'ROCK'}, {'name': 'rock'}, {'name': 'sOuL'},
+            {'name': 'Soul'}, {'name': 'favorite'}, {}, {'name': ''},
+        ]}
+
+        self.assertEqual(mbngs._genre_names(entity), ['ROCK', 'sOuL'])
+
+    def testNonGenreTagsPreserveMetadata(self):
+        self.response['release']['tag-list'] = [{'name': 'political'}]
+        group = {'release-group': {'tag-list': [
+            {'name': 'favorite'}, {'name': 'acoustic'},
+        ]}}
+        self.request.side_effect = [self.response, group]
+
+        self._assertMetadata(self._lookup(), [])
+        self.assertEqual(self.request.call_count, 2)
+
+    def testExplicitGenresDoNotRequireCatalog(self):
+        entity = {'genre-list': [{'name': 'Future MusicBrainz Genre'}],
+                  'tag-list': [{'name': 'favorite'}]}
+
+        with mock.patch.object(mbngs, '_known_genres') as catalog:
+            catalog.side_effect = AssertionError('catalog is unavailable')
+            self.assertEqual(mbngs._genre_names(entity),
+                             ['Future MusicBrainz Genre'])
+        catalog.assert_not_called()
 
     def testDirectReleaseGenreList(self):
         self.response['release']['genre-list'] = [{'name': 'Rock'}]
@@ -146,6 +180,21 @@ class MetadataRequestTestCase(unittest.TestCase):
                             self.release_includes)
         self._assertRequest(2, 'release-group', self.group_id, {'tags'})
 
+    def testUnavailableCatalogPreservesDiscIdentification(self):
+        self.response['release']['tag-list'] = [{'name': 'Rock'}]
+        disc = {'disc': {'release-list': [self.response['release']]}}
+        group = {'release-group': {'tag-list': [{'name': 'Soul'}]}}
+        self.request.side_effect = [disc, self.response, group]
+        mbngs._known_genres.cache_clear()
+        self.addCleanup(mbngs._known_genres.cache_clear)
+
+        with mock.patch('builtins.open', side_effect=OSError('unavailable')):
+            results = mbngs.musicbrainz(self.discid)
+
+        self.assertEqual(len(results), 1)
+        self._assertMetadata(results[0], [])
+        self.assertEqual(self.request.call_count, 3)
+
     def testUnknownDisc404RemainsNotFound(self):
         cause = HTTPError('https://musicbrainz.org', 404, 'not found',
                           None, None)
@@ -173,6 +222,36 @@ class MetadataRequestTestCase(unittest.TestCase):
             mock.call(True, 'release', self.release_id, self.response),
             mock.call(True, 'release-group', self.group_id, group),
         ])
+
+
+class GenreCatalogTestCase(unittest.TestCase):
+    """The bundled catalog is optional and loaded only once per process."""
+
+    def setUp(self):
+        mbngs._known_genres.cache_clear()
+        self.addCleanup(mbngs._known_genres.cache_clear)
+
+    def testLoadsAndCachesGenreNames(self):
+        with mock.patch('builtins.open',
+                        mock.mock_open(read_data='rock\nsoul\n')) as reader:
+            self.assertEqual(mbngs._known_genres(),
+                             frozenset({'rock', 'soul'}))
+            self.assertEqual(mbngs._known_genres(),
+                             frozenset({'rock', 'soul'}))
+
+        reader.assert_called_once()
+
+    def testReadFailuresCacheEmptyCatalog(self):
+        for error in (FileNotFoundError('missing'),
+                      PermissionError('unreadable'),
+                      UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'invalid')):
+            with self.subTest(error=type(error).__name__):
+                mbngs._known_genres.cache_clear()
+                with mock.patch('builtins.open',
+                                side_effect=error) as reader:
+                    self.assertEqual(mbngs._known_genres(), frozenset())
+                    self.assertEqual(mbngs._known_genres(), frozenset())
+                reader.assert_called_once()
 
 
 class MetadataTestCase(unittest.TestCase):

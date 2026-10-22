@@ -20,10 +20,12 @@
 
 """Handle communication with the MusicBrainz server using NGS."""
 from urllib.error import HTTPError
+from functools import lru_cache
 
 import whipper
 import json
 import musicbrainzngs
+import os
 
 import logging
 logger = logging.getLogger(__name__)
@@ -237,23 +239,45 @@ def _getPerformers(recording):
     return sorted(performers)  # convert to list: mutagen doesn't support set
 
 
+@lru_cache(maxsize=1)
+def _known_genres():
+    """Load recognized genres, or none if the list cannot be read."""
+    # Source: https://musicbrainz.org/ws/2/genre/all?fmt=txt
+    # Snapshot: 2026-10-21. Refresh this file to recognize newly added genres.
+    filename = os.path.join(os.path.dirname(__file__),
+                            'musicbrainz-genres.txt')
+    try:
+        with open(filename, encoding='utf-8') as handle:
+            return frozenset(line.strip().casefold() for line in handle
+                             if line.strip())
+    except (OSError, UnicodeError) as e:
+        logger.warning('could not read MusicBrainz genre list: %s', e)
+        return frozenset()
+
+
 def _genre_names(entity):
     """
-    Extract genre names or legacy folksonomy tags from an MB entity.
+    Extract explicit genres or recognized genre tags from an MB entity.
 
     MusicBrainzNGS 0.7.1 supports ``tags`` and parses ``tag-list``, but
-    does not support the ``genres`` include. Tags include genres and may
-    also contain other user-supplied classifications.
+    does not support the ``genres`` include. Filter public tags through
+    MusicBrainz's genre list so other classifications do not become genres.
 
     :param entity: MB entity with ``genre-list`` or ``tag-list``
     :type entity: dict
     :rtype: list(str)
     """
     names = []
-    for genre in (entity.get('genre-list') or entity.get('tag-list') or []):
+    seen = set()
+    genres = entity.get('genre-list')
+    tags = entity.get('tag-list') or []
+    known = _known_genres() if not genres and tags else frozenset()
+    for genre in (genres or tags):
         name = genre.get('name')
-        if name and name not in names:
+        if (name and name.casefold() not in seen
+                and (genres or name.casefold() in known)):
             names.append(name)
+            seen.add(name.casefold())
     return names
 
 

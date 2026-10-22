@@ -3,12 +3,14 @@
 
 import os
 import json
+from copy import deepcopy
 
 import unittest
 from unittest import mock
 from urllib.error import HTTPError
 
 import musicbrainzngs
+from musicbrainzngs import mbxml
 
 from whipper.common import mbngs
 
@@ -252,6 +254,111 @@ class GenreCatalogTestCase(unittest.TestCase):
                     self.assertEqual(mbngs._known_genres(), frozenset())
                     self.assertEqual(mbngs._known_genres(), frozenset())
                 reader.assert_called_once()
+
+
+class HtoaMetadataTestCase(unittest.TestCase):
+    """Pregap titles belong to the selected disc, outside numbered tracks."""
+
+    discid = 'bIOeHwHT0aZJiENIYjAmoNxCPuA-'
+
+    def setUp(self):
+        filename = 'whipper.release.410f99f8-a876-3416-bd8e-42233a00a477.json'
+        with open(os.path.join(os.path.dirname(__file__), filename)) as handle:
+            self.release = json.load(handle)['release']
+        self.medium = self.release['medium-list'][0]
+
+    def testPregapTrackTitlePreferred(self):
+        self.medium['pregap'] = {
+            'title': 'Hidden track title',
+            'recording': {'title': 'Hidden recording title'},
+        }
+
+        metadata = mbngs._getMetadata(self.release, self.discid)
+
+        self.assertEqual(metadata.htoaTitle, 'Hidden track title')
+
+    def testPregapRecordingTitleFallback(self):
+        for track in ({}, {'title': ''}):
+            with self.subTest(track=track):
+                self.medium['pregap'] = dict(
+                    track, recording={'title': 'Hidden recording title'})
+                metadata = mbngs._getMetadata(self.release, self.discid)
+                self.assertEqual(metadata.htoaTitle, 'Hidden recording title')
+
+    def testAbsentOrEmptyPregapHasNoTitle(self):
+        metadata = mbngs._getMetadata(self.release, self.discid)
+        self.assertIsNone(metadata.htoaTitle)
+        for pregap in (None, {}, {'title': ''}, {'recording': {}},
+                       {'title': '', 'recording': {'title': ''}}):
+            with self.subTest(pregap=pregap):
+                self.medium['pregap'] = pregap
+                metadata = mbngs._getMetadata(self.release, self.discid)
+                self.assertIsNone(metadata.htoaTitle)
+
+    def testOtherDiscPregapDoesNotSupplyTitle(self):
+        other = deepcopy(self.medium)
+        other['position'] = '2'
+        other['disc-list'] = [{'id': 'other-disc-id'}]
+        self.medium['disc-list'] = [{'id': self.discid}]
+        self.release['medium-list'].append(other)
+        cases = ((self.medium, other, 'other-disc-id'),
+                 (other, self.medium, self.discid))
+        for titled, untitled, discid in cases:
+            with self.subTest(discid=discid):
+                titled['pregap'] = {'title': 'Other disc hidden track'}
+                untitled.pop('pregap', None)
+                metadata = mbngs._getMetadata(self.release, discid)
+                self.assertIsNone(metadata.htoaTitle)
+                self.assertEqual(len(metadata.tracks), 14)
+
+    def testPregapDoesNotChangeNumberedTracksOrDuration(self):
+        baseline = mbngs._getMetadata(self.release, self.discid)
+        self.medium['pregap'] = {
+            'id': 'hidden-track-id', 'position': '0', 'number': '0',
+            'title': 'Hidden track', 'length': '99999',
+            'recording': {'title': 'Hidden recording', 'length': '99999'},
+        }
+
+        metadata = mbngs._getMetadata(self.release, self.discid)
+
+        self.assertEqual(metadata.duration, baseline.duration)
+        expected = [(t.mbid, t.title, t.duration) for t in baseline.tracks]
+        actual = [(t.mbid, t.title, t.duration) for t in metadata.tracks]
+        self.assertEqual(actual, expected)
+
+    def testMusicBrainzXmlPregapReachesMetadata(self):
+        credit = ('<artist-credit><name-credit><artist id="artist-id">'
+                  '<name>Artist</name><sort-name>Artist</sort-name>'
+                  '</artist></name-credit></artist-credit>')
+        template = '''<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#">
+          <release id="release-id"><title>Album</title><date>2026</date>
+            {credit}<release-group id="group-id"><title>Album</title>
+            </release-group><medium-list count="1"><medium>
+              <position>1</position>
+              <disc-list count="1"><disc id="{discid}"/></disc-list>
+              <pregap id="pregap-id">{track_title}<length>99999</length>
+                <recording id="pregap-recording-id">
+                  <title>Hidden recording title</title><length>99999</length>
+                </recording>
+              </pregap><track-list count="1"><track id="track-id">
+                <position>1</position><number>1</number>
+                <recording id="recording-id"><title>First track</title>
+                  <length>12345</length>{credit}</recording>
+              </track></track-list>
+            </medium></medium-list>
+          </release></metadata>'''
+        for track_title, expected in (
+                ('<title>Hidden track title</title>', 'Hidden track title'),
+                ('', 'Hidden recording title')):
+            with self.subTest(track_title=track_title):
+                xml = template.format(credit=credit, discid=self.discid,
+                                      track_title=track_title).encode('utf-8')
+                release = mbxml.parse_message(xml)['release']
+                metadata = mbngs._getMetadata(release, self.discid)
+                self.assertEqual(metadata.htoaTitle, expected)
+                self.assertEqual([t.title for t in metadata.tracks],
+                                 ['First track'])
+                self.assertEqual(metadata.duration, 12345)
 
 
 class MetadataTestCase(unittest.TestCase):

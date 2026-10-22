@@ -113,7 +113,7 @@ class DiscMetadata:
     mediumTitle = None
     # Issue #309: MusicBrainz genres (release and/or release-group)
     genres = None
-    # Issue #485: optional hidden-track title when MB documents one
+    # Issue #485: title of the selected medium's pregap, when documented
     htoaTitle = None
 
     def __init__(self):
@@ -370,6 +370,10 @@ def _getMetadata(release, discid=None, country=None):
                     discMD.mediumTitle = medium['title']
                     releaseTitle += ": %s" % medium['title']
                 discMD.releaseTitle = releaseTitle
+                pregap = medium.get('pregap') or {}
+                pregap_recording = pregap.get('recording') or {}
+                discMD.htoaTitle = (pregap.get('title')
+                                    or pregap_recording.get('title') or None)
                 for t in medium['track-list']:
                     track = TrackMetadata()
                     trackCredit = _Credit(

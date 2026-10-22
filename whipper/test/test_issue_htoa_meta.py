@@ -3,6 +3,7 @@
 
 """Unit tests for #282/#346/#309/#485 HTOA skip, default device, tags."""
 
+import json
 import os
 import tempfile
 import unittest
@@ -113,6 +114,45 @@ class GetTagListTestCase(unittest.TestCase):
         prog.metadata.htoaTitle = 'How Hard'
         tags = prog.getTagList(0, 'discid123')
         self.assertEqual(tags['TITLE'], 'How Hard')
+
+    def testParsedPregapTitleReachesTagsWithoutShiftingTracks(self):
+        release_id = '410f99f8-a876-3416-bd8e-42233a00a477'
+        filename = 'whipper.release.' + release_id + '.json'
+        with open(os.path.join(os.path.dirname(__file__), filename)) as handle:
+            release = json.load(handle)['release']
+        medium = release['medium-list'][0]
+        discid = medium['disc-list'][0]['id']
+        for title in ('Hidden Prelude', None):
+            with self.subTest(title=title):
+                if title is not None:
+                    medium['pregap'] = {'title': title, 'recording': {
+                        'id': 'pregap-recording-id', 'title': title,
+                    }}
+                else:
+                    medium.pop('pregap', None)
+                prog = program_mod.Program.__new__(program_mod.Program)
+                prog.metadata = mbngs._getMetadata(release, discid)
+
+                tags = prog.getTagList(0, discid)
+                self.assertEqual(tags['TITLE'],
+                                 title or 'Hidden Track One Audio')
+                self.assertEqual(tags['MUSICBRAINZ_DISCID'], discid)
+                self.assertEqual(tags['MUSICBRAINZ_ALBUMID'], release_id)
+                self.assertEqual(tags['MUSICBRAINZ_RELEASEGROUPID'],
+                                 release['release-group']['id'])
+                self.assertEqual(tags['TRACKNUMBER'], '0')
+                self.assertNotIn('MUSICBRAINZ_TRACKID', tags)
+                self.assertNotIn('MUSICBRAINZ_RELEASETRACKID', tags)
+                self.assertNotIn('MUSICBRAINZ_ARTISTID', tags)
+
+                normal_tags = prog.getTagList(1, discid)
+                self.assertEqual(normal_tags['TITLE'], 'Fields of Joy')
+                self.assertEqual(normal_tags['TRACKTOTAL'], '14')
+                first = medium['track-list'][0]
+                self.assertEqual(normal_tags['MUSICBRAINZ_RELEASETRACKID'],
+                                 first['id'])
+                self.assertEqual(normal_tags['MUSICBRAINZ_TRACKID'],
+                                 first['recording']['id'])
 
     def testNormalTrackStillHasTrackMbids(self):
         prog = self._program_with_meta()

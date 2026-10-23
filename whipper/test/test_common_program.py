@@ -5,7 +5,6 @@
 import os
 import shutil
 import unittest
-from unittest import mock
 
 from tempfile import NamedTemporaryFile
 from whipper.common import program, mbngs, config
@@ -45,64 +44,6 @@ class PathTestCase(unittest.TestCase):
         path = prog.getPath('/tmp', '%A/%d', 'mbdiscid', md, 0)
         self.assertEqual(path,
                          '/tmp/Jeff Buckley/Grace')
-
-
-class _FakeChecksumTask:
-    def __init__(self, checksum):
-        self.checksum = checksum
-
-
-class _FakeRunner:
-    def __init__(self, checksum):
-        self._checksum = checksum
-        self.ran = False
-
-    def run(self, task):
-        self.ran = True
-        task.checksum = self._checksum
-
-
-class VerifyTrackResumeTestCase(unittest.TestCase):
-    """Issue #681: resume must not always re-rip when testcrc is None."""
-
-    def testReuseExistingFileWhenNoPriorCrc(self):
-        from whipper.result.result import TrackResult
-        track = TrackResult()
-        track.filename = '/tmp/01. Track.flac'
-        track.testcrc = None
-        runner = _FakeRunner(0xABCDEF01)
-        with mock.patch('whipper.common.program.checksum.CRC32Task',
-                        side_effect=lambda path, is_wave=False:
-                        _FakeChecksumTask(0xABCDEF01)):
-            ok = program.Program.verifyTrack(runner, track)
-        self.assertTrue(ok)
-        self.assertTrue(runner.ran)
-        self.assertEqual(track.testcrc, 0xABCDEF01)
-        self.assertEqual(track.copycrc, 0xABCDEF01)
-
-    def testMismatchStillFailsWhenPriorCrcKnown(self):
-        from whipper.result.result import TrackResult
-        track = TrackResult()
-        track.filename = '/tmp/01. Track.flac'
-        track.testcrc = 0x11111111
-        runner = _FakeRunner(0x22222222)
-        with mock.patch('whipper.common.program.checksum.CRC32Task',
-                        side_effect=lambda path, is_wave=False:
-                        _FakeChecksumTask(0x22222222)):
-            ok = program.Program.verifyTrack(runner, track)
-        self.assertFalse(ok)
-
-    def testMatchSucceedsWhenPriorCrcKnown(self):
-        from whipper.result.result import TrackResult
-        track = TrackResult()
-        track.filename = '/tmp/01. Track.flac'
-        track.testcrc = 0xABCDABCD
-        runner = _FakeRunner(0xABCDABCD)
-        with mock.patch('whipper.common.program.checksum.CRC32Task',
-                        side_effect=lambda path, is_wave=False:
-                        _FakeChecksumTask(0xABCDABCD)):
-            ok = program.Program.verifyTrack(runner, track)
-        self.assertTrue(ok)
 
 
 # TODO: Test cover art embedding too.

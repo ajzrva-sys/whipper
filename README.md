@@ -229,6 +229,15 @@ The simplest way to get started making accurate rips is:
    candidate order and full-track probing. The bundled lookup table is
    [reproducible from its source snapshot](misc/accuraterip/README.md).
 
+   Each offset-detection read has a 1,800-second total limit and a 120-second
+   inactivity limit. Forward read/write progress or output growth resets the
+   inactivity limit; repeated progress messages and read errors do not.
+   For a slow drive, increase these limits with `--read-timeout SECONDS` and
+   `--read-idle-timeout SECONDS` (positive, finite values). A timed-out window
+   falls back to ordinary probing; a timed-out confirmation rejects that
+   candidate and tries the next. These limits apply per read, so the complete
+   search can take longer. Ordinary album ripping has no new time limit.
+
    If you can not confirm your drive offset value but wish to set a default regardless, set `read_offset = insert-numeric-value-here` in `whipper.conf`.
 
    Offsets confirmed with `whipper offset find` are automatically written to the configuration file.

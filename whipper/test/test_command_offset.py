@@ -7,8 +7,9 @@ import unittest
 from unittest import mock
 
 from whipper.command import offset
-from whipper.common import common
+from whipper.common import common, offsetfind
 from whipper.extern.task import task
+from whipper.program import cdparanoia
 from whipper.test.test_common_offsetfind import FakeTable
 
 
@@ -17,7 +18,8 @@ class FindTest(unittest.TestCase):
         command = offset.Find.__new__(offset.Find)
         command.options = argparse.Namespace(
             offsets=explicit, device='/dev/sr0', drive_auto_close=False,
-            no_frame450=no_fast, no_prioritize_known=no_known)
+            no_frame450=no_fast, no_prioritize_known=no_known,
+            read_timeout=1800.0, read_idle_timeout=120.0)
         command.handle_arguments()
         return command
 
@@ -44,6 +46,7 @@ class FindTest(unittest.TestCase):
         self.responses = [response]
         self.stack.enter_context(mock.patch.object(
             offset.accurip, 'get_db_entry', return_value=self.responses))
+        self.actual_find_offsets = offsetfind.find_offsets
         self.fast = self.stack.enter_context(mock.patch.object(
             offset.offsetfind, 'find_offsets', return_value=[102]))
         self.found = self.stack.enter_context(mock.patch.object(
@@ -58,6 +61,8 @@ class FindTest(unittest.TestCase):
                              [(1, 102), (2, 102), (3, 102)])
         self.found.assert_called_once_with('/dev/sr0', 102)
         self.assertEqual(self.fast.call_args[1]['guess'], 6)
+        self.assertEqual(self.fast.call_args[1]['read_timeout'], 1800.0)
+        self.assertEqual(self.fast.call_args[1]['idle_timeout'], 120.0)
 
     def test_track1_match_and_track2_mismatch_never_saves(self):
         command = self.make_command()
@@ -186,8 +191,110 @@ class FindTest(unittest.TestCase):
 
     def test_confirmation_temporary_file_is_removed_on_failure(self):
         command = self.make_command()
-        self.runner.run.side_effect = task.TaskException(ValueError('bad rip'))
-        with mock.patch.object(offset.cdparanoia, 'ReadTrackTask') as reader:
+        for error in (ValueError('bad rip'),
+                      cdparanoia.ReadTimeoutError('inactivity', 120)):
+            self.runner.run.side_effect = task.TaskException(error)
+            with mock.patch.object(offset.cdparanoia, 'ReadTrackTask') as read:
+                with self.assertRaises(task.TaskException):
+                    command._arcs(self.runner, FakeTable(), 1, 102)
+                self.assertFalse(os.path.exists(read.call_args[0][0]))
+                self.assertEqual(read.call_args[1]['read_timeout'], 1800.0)
+                self.assertEqual(read.call_args[1]['idle_timeout'], 120.0)
+
+    def test_timeout_rejects_candidate_then_confirms_next_before_saving(self):
+        command = self.make_command('9,102')
+        for failing_track in (1, 2, 3):
+            with self.subTest(failing_track=failing_track):
+                self.found.reset_mock()
+                results = [(checksum, 'v2') for checksum in
+                           ('one', 'two')[:failing_track - 1]]
+                results.append(task.TaskException(
+                    cdparanoia.ReadTimeoutError('inactivity', 120)))
+                results.extend([('one', 'v2'), ('two', 'v2'), ('three', 'v2')])
+                with mock.patch.object(command, '_arcs',
+                                       side_effect=results) as arcs:
+                    self.assertEqual(command.do(), 0)
+                    self.assertEqual([c[0][2:] for c in arcs.call_args_list],
+                                     [(n, 9) for n in
+                                      range(1, failing_track + 1)] +
+                                     [(1, 102), (2, 102), (3, 102)])
+                self.found.assert_called_once_with('/dev/sr0', 102)
+
+    def test_all_candidates_timing_out_never_saves(self):
+        command = self.make_command('9,102')
+        error = task.TaskException(cdparanoia.ReadTimeoutError('total', 1800))
+        with mock.patch.object(command, '_arcs', side_effect=error) as arcs:
+            self.assertIsNone(command.do())
+        self.assertEqual([c[0][3] for c in arcs.call_args_list], [9, 102])
+        self.found.assert_not_called()
+
+    def test_window_timeout_falls_back_and_fully_confirms(self):
+        command = self.make_command()
+        self.responses[0].offsetfind_checksums = ['12345678']
+        self.fast.side_effect = self.actual_find_offsets
+        self.runner.run.side_effect = [None, task.TaskException(
+            cdparanoia.ReadTimeoutError('inactivity', 120))]
+        self.table.getTrackStart.return_value = 32
+        self.table.getTrackEnd.return_value = 1999
+        with mock.patch.object(offset.cdparanoia, 'ReadTrackTask') as read, \
+                mock.patch.object(command, '_arcs', side_effect=[
+                    ('one', 'v2'), ('two', 'v2'), ('three', 'v2')]) as arcs:
+            self.assertEqual(command.do(), 0)
+            self.assertFalse(os.path.exists(read.call_args[0][0]))
+            self.assertEqual([c[0][2:] for c in arcs.call_args_list],
+                             [(1, 6), (2, 6), (3, 6)])
+        self.found.assert_called_once_with('/dev/sr0', 6)
+
+    def test_unreaped_reader_aborts_without_another_candidate(self):
+        command = self.make_command('9,102')
+        error = task.TaskException(cdparanoia.ReadCleanupError('cannot reap'))
+        with mock.patch.object(command, '_arcs', side_effect=error) as arcs:
             with self.assertRaises(task.TaskException):
-                command._arcs(self.runner, FakeTable(), 1, 102)
-            self.assertFalse(os.path.exists(reader.call_args[0][0]))
+                command.do()
+        self.assertEqual(arcs.call_count, 1)
+        self.found.assert_not_called()
+
+    def test_custom_limits_reach_confirmation_reader(self):
+        command = self.make_command()
+        command.options.read_timeout = 3600.0
+        command.options.read_idle_timeout = 300.0
+        with mock.patch.object(offset.cdparanoia, 'ReadTrackTask') as read, \
+                mock.patch.object(offset.arc, 'accuraterip_checksum',
+                                  return_value=(1, 2)):
+            self.assertEqual(command._arcs(
+                self.runner, FakeTable(), 1, 102), ('00000001', '00000002'))
+            self.assertEqual(read.call_args[1]['read_timeout'], 3600.0)
+            self.assertEqual(read.call_args[1]['idle_timeout'], 300.0)
+            self.assertFalse(os.path.exists(read.call_args[0][0]))
+
+
+class TimeoutArgumentsTest(unittest.TestCase):
+    def make_parser(self):
+        command = offset.Find.__new__(offset.Find)
+        command.parser = argparse.ArgumentParser()
+        command.add_arguments()
+        return command.parser
+
+    def test_defaults_and_custom_limits(self):
+        parser = self.make_parser()
+        defaults = parser.parse_args([])
+        self.assertEqual(defaults.read_timeout,
+                         offsetfind.DEFAULT_READ_TIMEOUT)
+        self.assertEqual(defaults.read_idle_timeout,
+                         offsetfind.DEFAULT_IDLE_TIMEOUT)
+        custom = parser.parse_args(['--read-timeout', '3600',
+                                    '--read-idle-timeout', '300.5'])
+        self.assertEqual((custom.read_timeout, custom.read_idle_timeout),
+                         (3600.0, 300.5))
+
+    def test_invalid_limits_rejected_including_config_defaults(self):
+        for option in ('--read-timeout', '--read-idle-timeout'):
+            for value in ('0', '-1', 'nan', 'inf', '-inf', 'bad'):
+                with self.subTest(option=option, value=value):
+                    parser = self.make_parser()
+                    # BaseCommand loads configuration values as strings.
+                    dest = option[2:].replace('-', '_')
+                    parser.set_defaults(**{dest: value})
+                    with mock.patch('sys.stderr'), \
+                            self.assertRaises(SystemExit):
+                        parser.parse_args([])

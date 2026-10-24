@@ -93,7 +93,11 @@ class WindowTest(unittest.TestCase):
         errors = [None, OSError('bad WAV'),
                   task.TaskException(common.MissingDependencyException(
                       'cd-paranoia')),
-                  task.TaskException(ValueError('read failed'))]
+                  task.TaskException(ValueError('read failed')),
+                  task.TaskException(cdparanoia.ReadTimeoutError(
+                      'inactivity', 120)),
+                  task.TaskException(cdparanoia.ReadCleanupError(
+                      'cannot reap'))]
         for error in errors:
             runner = mock.Mock()
             if isinstance(error, task.TaskException):
@@ -105,7 +109,8 @@ class WindowTest(unittest.TestCase):
                     mock.patch.object(offsetfind.cdparanoia,
                                       'ReadTrackTask') as reader:
                 if isinstance(error, task.TaskException) and isinstance(
-                        error.exception, common.MissingDependencyException):
+                        error.exception, (common.MissingDependencyException,
+                                          cdparanoia.ReadCleanupError)):
                     with self.assertRaises(task.TaskException):
                         offsetfind.read_window(runner, FakeTable(),
                                                '/dev/cd0', 0, 3000)
@@ -117,6 +122,21 @@ class WindowTest(unittest.TestCase):
                 self.assertFalse(os.path.exists(path))
                 self.assertEqual(reader.call_args[1]['offset'], 0)
                 self.assertFalse(reader.call_args[1]['overread'])
+                self.assertEqual(reader.call_args[1]['read_timeout'], 1800.0)
+                self.assertEqual(reader.call_args[1]['idle_timeout'], 120.0)
+
+    def test_timeout_yields_no_hints_and_custom_limits_reach_reader(self):
+        runner = mock.Mock()
+        runner.run.side_effect = task.TaskException(
+            cdparanoia.ReadTimeoutError('inactivity', 300))
+        response = mock.Mock(offsetfind_checksums=['12345678'])
+        with mock.patch.object(offsetfind.cdparanoia, 'ReadTrackTask') as read:
+            self.assertEqual(offsetfind.find_offsets(
+                runner, FakeTable(), '/dev/cd0', [response],
+                read_timeout=3600, idle_timeout=300), [])
+            self.assertEqual(read.call_args[1]['read_timeout'], 3600)
+            self.assertEqual(read.call_args[1]['idle_timeout'], 300)
+            self.assertFalse(os.path.exists(read.call_args[0][0]))
 
     def test_little_endian_wav_and_big_endian_conversion(self):
         with tempfile.TemporaryDirectory() as directory:

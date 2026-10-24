@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 SECTOR_SAMPLES = 588
 FRAME450 = 450 * SECTOR_SAMPLES
 DEFAULT_SWEEP = 3000
+DEFAULT_READ_TIMEOUT = 1800.0
+DEFAULT_IDLE_TIMEOUT = 120.0
 
 
 def offsetfind_crcs(pcm, start):
@@ -65,7 +67,9 @@ def _read_pcm(path):
     return pcm
 
 
-def read_window(runner, table, device, guess, sweep):
+def read_window(runner, table, device, guess, sweep,
+                read_timeout=DEFAULT_READ_TIMEOUT,
+                idle_timeout=DEFAULT_IDLE_TIMEOUT):
     """Read one short span at zero correction, returning PCM and its origin."""
     first = max(0, (FRAME450 + guess - sweep) // SECTOR_SAMPLES - 2)
     last = (FRAME450 + guess + sweep + SECTOR_SAMPLES - 1) // \
@@ -79,11 +83,13 @@ def read_window(runner, table, device, guess, sweep):
     os.close(fd)
     try:
         reader = cdparanoia.ReadTrackTask(
-            path, table, start, stop, overread=False, offset=0, device=device)
+            path, table, start, stop, overread=False, offset=0, device=device,
+            read_timeout=read_timeout, idle_timeout=idle_timeout)
         runner.run(reader)
         return _read_pcm(path), first * SECTOR_SAMPLES
     except task.TaskException as error:
-        if isinstance(error.exception, common.MissingDependencyException):
+        if isinstance(error.exception, (common.MissingDependencyException,
+                                        cdparanoia.ReadCleanupError)):
             raise
         logger.warning('cannot read offset window: %s', error)
     except (OSError, EOFError, ValueError, wave.Error) as error:
@@ -94,7 +100,9 @@ def read_window(runner, table, device, guess, sweep):
 
 
 def find_offsets(runner, table, device, responses, guess=0,
-                 allowed_offsets=None, sweep=DEFAULT_SWEEP):
+                 allowed_offsets=None, sweep=DEFAULT_SWEEP,
+                 read_timeout=DEFAULT_READ_TIMEOUT,
+                 idle_timeout=DEFAULT_IDLE_TIMEOUT):
     """Suggest candidates, leaving ordinary probing on unavailable data."""
     checksums = set()
     for response in responses:
@@ -109,7 +117,9 @@ def find_offsets(runner, table, device, responses, guess=0,
             checksums.add(value)
     if not checksums:
         return []
-    pcm, sample_base = read_window(runner, table, device, guess, sweep)
+    pcm, sample_base = read_window(
+        runner, table, device, guess, sweep,
+        read_timeout=read_timeout, idle_timeout=idle_timeout)
     if pcm is None:
         return []
     candidates = (range(guess - sweep, guess + sweep + 1)

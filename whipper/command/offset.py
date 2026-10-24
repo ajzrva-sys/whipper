@@ -19,6 +19,7 @@
 # along with whipper.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
+import math
 import os
 import tempfile
 import logging
@@ -47,6 +48,16 @@ OFFSETS = ("+6, +667, +48, +102, +30, +12, +103, +618, +96, +738, "
            "+1364, +1336, +1262, +1161, +1127")
 
 
+def _positive_seconds(value):
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError('must be positive, finite seconds')
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError('must be positive, finite seconds')
+    return seconds
+
+
 class Find(BaseCommand):
     summary = "find drive read offset"
     description = """Find drive's read offset by ripping tracks from a
@@ -68,6 +79,15 @@ CD in the AccurateRip database."""
         self.parser.add_argument(
             '--no-frame450', action='store_true',
             help='skip the short AccurateRip checksum window')
+        self.parser.add_argument(
+            '--read-timeout', type=_positive_seconds, metavar='SECONDS',
+            default=offsetfind.DEFAULT_READ_TIMEOUT,
+            help='maximum seconds for each offset window or confirmation read')
+        self.parser.add_argument(
+            '--read-idle-timeout', type=_positive_seconds, metavar='SECONDS',
+            default=offsetfind.DEFAULT_IDLE_TIMEOUT,
+            help='maximum seconds without forward read/write progress during '
+                 'offset detection')
 
     def handle_arguments(self):
         self._explicit_offsets = self.options.offsets is not None
@@ -143,7 +163,9 @@ CD in the AccurateRip database."""
             guess = configured if configured is not None else (
                 known[0] if known else 0)
             fast = offsetfind.find_offsets(
-                runner, table, device, responses, guess=guess)
+                runner, table, device, responses, guess=guess,
+                read_timeout=self.options.read_timeout,
+                idle_timeout=self.options.read_idle_timeout)
             # Several pressings may match the short window. Prefer known
             # drive offsets among those matches before trying other shifts.
             fast = drive_offsets.order_offsets(
@@ -170,7 +192,8 @@ CD in the AccurateRip database."""
                 checksums = self._arcs(runner, table, track, offset)
             except task.TaskException as error:
                 if isinstance(error.exception,
-                              common.MissingDependencyException):
+                              (common.MissingDependencyException,
+                               cdparanoia.ReadCleanupError)):
                     raise
                 logger.warning('cannot confirm track %d at offset %d: %s',
                                track, offset, error)
@@ -195,7 +218,9 @@ CD in the AccurateRip database."""
             t = cdparanoia.ReadTrackTask(
                 path, table, table.getTrackStart(track),
                 table.getTrackEnd(track), overread=False, offset=offset,
-                device=self.options.device)
+                device=self.options.device,
+                read_timeout=self.options.read_timeout,
+                idle_timeout=self.options.read_idle_timeout)
             t.description = 'Ripping track %d with read offset %d' % (
                 track, offset)
             runner.run(t)

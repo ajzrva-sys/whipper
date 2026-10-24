@@ -15,6 +15,8 @@ Synopsis
 
 | whipper offset find [**-o** *<OFFSETS>*] [**-d** *<DEVICE>*]
 |                     [**--no-frame450**] [**--no-prioritize-known**]
+|                     [**--read-timeout** *<SECONDS>*]
+|                     [**--read-idle-timeout** *<SECONDS>*]
 | whipper offset find **-h**
 
 Options
@@ -37,6 +39,15 @@ Options
 |     Do not prioritize configured or published drive-model offsets in the probe
 |     list. Combine with **--no-frame450** for the original probing order.
 
+| **--read-timeout** *<SECONDS>*
+|     Maximum total time for each offset window or full-track confirmation
+|     read. Default: 1800 seconds. Must be positive and finite.
+
+| **--read-idle-timeout** *<SECONDS>*
+|     Maximum time without forward read/write progress or output growth.
+|     Default: 120 seconds. Must be positive and finite. Repeated progress
+|     messages and read errors do not reset this limit.
+
 Detection
 =========
 
@@ -53,6 +64,15 @@ continues, trying configured and published offsets before the existing list.
 Model names must match completely, ignoring case and whitespace. Conflicting
 published offsets remain candidates; a lookup never bypasses confirmation.
 No drive-table download is made at runtime.
+
+On timeout, whipper terminates the reader, escalating to a kill if necessary,
+reaps it, and removes the temporary WAV. A window timeout falls back to ordinary
+probing; a confirmation timeout rejects the candidate and tries the next offset.
+An offset is saved only after full-track confirmation succeeds for every required
+track. Increase the limits for particularly slow drives. Limits apply to each
+read, so the complete search may take longer. They do not apply to ordinary
+album ripping. If the operating system cannot reap a killed reader within the
+cleanup grace period, the search stops instead of starting another read.
 
 See Also
 ========

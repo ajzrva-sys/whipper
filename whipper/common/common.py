@@ -175,8 +175,8 @@ def name_max_for(path):
     """
     Return the filesystem ``NAME_MAX`` for ``path``'s filesystem.
 
-    Falls back to 255 when ``pathconf`` is missing or the parent does not
-    exist yet (issue #453 / PR #672).
+    Use the nearest existing ancestor when the directory does not exist yet.
+    Fall back to 255 when ``pathconf`` is unavailable or reports no limit.
     """
     try:
         limit = os.pathconf(_existing_ancestor(path), 'PC_NAME_MAX')
@@ -241,14 +241,13 @@ def truncate_path_components(path, reserve_last=_EXTENSION_RESERVE):
     parts = [p for p in path.split(os.sep) if p not in ('', '.')]
     if not parts:
         return path
-    truncated = []
+    directory = os.sep if is_abs else ''
     for index, part in enumerate(parts):
         last = index == len(parts) - 1
-        truncated.append(truncate_filename(
-            part, has_file_ext=False,
-            reserve=reserve_last if last else 0))
-    joined = os.path.join(*truncated)
-    return (os.sep + joined) if is_abs else joined
+        directory = truncate_filename(
+            os.path.join(directory, part), has_file_ext=False,
+            reserve=reserve_last if last else 0)
+    return directory
 
 
 def shrinkPath(path):

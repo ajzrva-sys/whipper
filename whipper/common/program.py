@@ -242,15 +242,21 @@ class Program:
         v_fltr = {k: self._filter.filter(v2) if isinstance(v2, str) else ''
                   if v2 is None else v2 for k, v2 in v.items()}
         # Issue #453 / PR #672: MusicBrainz titles can exceed NAME_MAX per
-        # path component; truncate each segment before joining.
+        # path component; look up each limit in its destination directory.
         expanded = template % v_fltr
         parts = [p for p in expanded.split('/') if p]
         truncated_parts = []
+        directory = outdir
         for index, part in enumerate(parts):
+            if part in (os.curdir, os.pardir):
+                directory = os.path.join(directory, part)
+                truncated_parts.append(part)
+                continue
             last = index == len(parts) - 1
-            truncated_parts.append(common.truncate_filename(
-                part, has_file_ext=False,
-                reserve=common.EXTENSION_RESERVE if last else 0))
+            directory = common.truncate_filename(
+                os.path.join(directory, part), has_file_ext=False,
+                reserve=common.EXTENSION_RESERVE if last else 0)
+            truncated_parts.append(os.path.basename(directory))
         truncated_path = os.path.join(*truncated_parts) if (
             truncated_parts) else ''
         if outdir == os.curdir:

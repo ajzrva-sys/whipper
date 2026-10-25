@@ -24,6 +24,7 @@ import os.path
 import math
 import re
 import subprocess
+import tempfile
 import unicodedata
 
 from whipper.extern import asyncsub
@@ -405,41 +406,83 @@ def path_is_within(path, directory):
         return False
 
 
-def align_track_path(track_path, disc_name, track_template):
+def align_track_path(track_path, disc_name, track_template,
+                     output_directory):
+    """Re-root template directories under the disc, sharing common prefixes.
+
+    Both expanded paths are relative to output_directory. Strip only their
+    shared leading directory components, never the track's remaining hierarchy.
+    Reject traversal and symlink escapes instead of flattening them.
     """
-    Place a track file inside the disc output directory (issue #692).
+    disc_dir = os.path.normpath(os.path.dirname(disc_name) or os.curdir)
+    root = os.path.abspath(output_directory)
+    track_abs = os.path.abspath(track_path)
+    disc_abs = os.path.abspath(disc_dir)
+    if not path_is_within(track_abs, root):
+        raise ValueError('track template %r escapes output directory: %r' %
+                         (track_template, track_path))
+    if disc_abs != root and not path_is_within(disc_abs, root):
+        raise ValueError('disc directory escapes output directory: %r' %
+                         disc_dir)
 
-    ``--track-template`` is expanded against the output directory, not the
-    disc-template folder. When the track template has no directory prefix
-    (or expands somewhere else), tracks must still land next to the disc
-    .cue/.log files or the rip fails when writing.
+    track_parts = os.path.relpath(track_abs, root).split(os.sep)
+    disc_parts = os.path.relpath(disc_abs, root).split(os.sep)
+    shared = 0
+    for track_part, disc_part in zip(track_parts[:-1], disc_parts):
+        if track_part != disc_part:
+            break
+        shared += 1
+    aligned = os.path.normpath(os.path.join(disc_dir, *track_parts[shared:]))
+    if not path_is_within(os.path.realpath(aligned),
+                          os.path.realpath(disc_dir)):
+        raise ValueError('track path escapes disc directory: %r' % aligned)
+    if track_abs == os.path.abspath(aligned):
+        return track_path, False
+    return aligned, True
 
-    :param track_path: expanded track path from getPath()
-    :type  track_path: str
-    :param disc_name: expanded disc path (no extension) from getPath()
-    :type  disc_name: str
-    :param track_template: the user-supplied track template string
-    :type  track_template: str
-    :returns: ``(path, aligned)`` — possibly rewritten path, and whether
-              it was moved into the disc directory
-    :rtype: tuple(str, bool)
+
+def check_track_path(path, number, destinations, previous=None):
+    """Reject duplicate destinations and files not recorded for this track."""
+    key = os.path.normcase(os.path.realpath(path))
+    if key in destinations:
+        raise ValueError('tracks %d and %d resolve to the same destination: %r'
+                         % (destinations[key], number, path))
+    destinations[key] = number
+    if os.path.lexists(path):
+        if (os.path.islink(path) or not os.path.isfile(path) or
+                previous is None or not previous.filename or
+                os.path.abspath(previous.filename) != os.path.abspath(path)):
+            raise FileExistsError('track %d destination already exists: %r' %
+                                  (number, path))
+    if os.path.lexists(path + '.part'):
+        raise FileExistsError('track %d temporary destination already '
+                              'exists: %r' % (number, path + '.part'))
+
+
+def check_track_path_aliases(track_paths, disc_dir):
+    """Probe destination names on the output filesystem before writing audio.
+
+    A disposable directory catches case and Unicode aliases according to the
+    filesystem's own rules, without touching any actual destination file.
     """
-    disc_dir = os.path.dirname(disc_name) if disc_name else ''
-    if not disc_dir or not track_path:
-        return track_path, False
-    if path_is_within(track_path, disc_dir):
-        return track_path, False
-
-    template_norm = (track_template or '').replace('\\', '/').strip('/')
-    if '/' not in template_norm:
-        # e.g. "%t. %n" — only a filename component
-        return os.path.join(disc_dir, os.path.basename(track_path)), True
-
-    # Hierarchical track template that does not expand under the disc
-    # folder: re-root the basename under the disc directory and warn.
-    # Keeping full template-relative paths here would invent nested dirs
-    # outside the disc folder (or double-nest default templates).
-    return os.path.join(disc_dir, os.path.basename(track_path)), True
+    parent = os.path.abspath(disc_dir)
+    while not os.path.isdir(parent):
+        parent = os.path.dirname(parent)
+    with tempfile.TemporaryDirectory(prefix='.whipper-paths-',
+                                     dir=parent) as probe:
+        for number, path in track_paths.items():
+            relative = os.path.relpath(path, disc_dir)
+            candidate = os.path.join(probe, relative)
+            os.makedirs(os.path.dirname(candidate), exist_ok=True)
+            try:
+                with open(candidate, 'x') as handle:
+                    handle.write(str(number))
+            except FileExistsError:
+                with open(candidate) as handle:
+                    other = handle.read()
+                raise ValueError(
+                    'tracks %s and %d resolve to the same destination on '
+                    'this filesystem: %r' % (other, number, path))
 
 
 class VersionGetter:

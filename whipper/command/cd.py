@@ -30,6 +30,8 @@ from whipper.common import common
 from whipper.common.common import (
     align_track_path,
     truncate_filename,
+    check_track_path,
+    check_track_path_aliases,
     validate_template,
 )
 from whipper.program import cdrdao, cdparanoia, utils
@@ -446,7 +448,33 @@ Log files will log the path to tracks relative to this directory.
                                         self.options.disc_template,
                                         self.mbdiscid,
                                         self.program.metadata)
-        dirname = os.path.dirname(discName)
+        # Resolve every audio destination before verification can delete a file
+        # or the first track can write audio, including Hidden Track One Audio.
+        htoa = self.program.getHTOA()
+        rip_htoa = htoa and not getattr(self.options, 'skip_htoa', False)
+        numbers = ([0] if rip_htoa else []) + [
+            i + 1 for i, track in enumerate(self.itable.tracks) if track.audio]
+        track_paths = {}
+        destinations = {}
+        for number in numbers:
+            expanded = self.program.getPath(
+                self.program.outdir, self.options.track_template,
+                self.mbdiscid, self.program.metadata,
+                track_number=number) + '.flac'
+            # Preserve the fork's existing filename-limit handling.
+            expanded = truncate_filename(expanded)
+            path, aligned = align_track_path(
+                expanded, discName, self.options.track_template,
+                self.program.outdir)
+            if aligned:
+                logger.warning('writing track %d to %r instead of %r',
+                               number, path, expanded)
+            check_track_path(path, number, destinations,
+                             self.program.result.getTrackResult(number))
+            track_paths[number] = path
+
+        dirname = os.path.dirname(discName) or os.curdir
+        check_track_path_aliases(track_paths, dirname)
         if os.path.exists(dirname):
             log_file = discName + '.log'
             # Issue #352: only treat a *complete* whipper log as proof of a
@@ -487,6 +515,8 @@ Log files will log the path to tracks relative to this directory.
             logger.debug('ripIfNotRipped for track %d', number)
             # we can have a previous result
             trackResult = self.program.result.getTrackResult(number)
+            # Recheck immediately before any existing file can be verified.
+            check_track_path(track_paths[number], number, {}, trackResult)
             if not trackResult:
                 trackResult = result.TrackResult()
                 self.program.result.tracks.append(trackResult)
@@ -494,24 +524,7 @@ Log files will log the path to tracks relative to this directory.
                 logger.debug('ripIfNotRipped have trackresult, path %r',
                              trackResult.filename)
 
-            path = self.program.getPath(self.program.outdir,
-                                        self.options.track_template,
-                                        self.mbdiscid,
-                                        self.program.metadata,
-                                        track_number=number) + '.flac'
-            # Issue #453: keep the final component under NAME_MAX after
-            # appending the audio extension.
-            path = truncate_filename(path)
-            # Issue #692: keep tracks inside the disc folder even when
-            # --track-template has no directory prefix matching --disc-template.
-            aligned_path, aligned = align_track_path(
-                path, discName, self.options.track_template)
-            if aligned:
-                logger.warning(
-                    'track template %r does not expand under the disc '
-                    'directory; writing track %d to %r instead of %r',
-                    self.options.track_template, number, aligned_path, path)
-                path = aligned_path
+            path = track_paths[number]
             logger.debug('ripIfNotRipped: path %r', path)
             trackResult.number = number
 
@@ -691,7 +704,6 @@ Log files will log the path to tracks relative to this directory.
                 logger.error('failed to write partial rip results: %s', e)
 
         # check for hidden track one audio
-        htoa = self.program.getHTOA()
         try:
             if htoa:
                 start, stop = htoa

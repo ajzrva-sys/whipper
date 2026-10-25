@@ -96,7 +96,7 @@ class AlignTrackPathTestCase(tcommon.TestCase):
         disc = '/out/Artist - Album/Artist - Album'
         track = '/out/Artist - Album/01. Title.flac'
         path, aligned = common.align_track_path(
-            track, disc, '%r/%A - %d/%t. %a - %n')
+            track, disc, '%r/%A - %d/%t. %a - %n', '/out')
         self.assertEqual(path, track)
         self.assertFalse(aligned)
 
@@ -105,21 +105,21 @@ class AlignTrackPathTestCase(tcommon.TestCase):
         disc = '/out/Artist - Album/Artist - Album'
         track = '/out/01. Speed of Life.flac'
         path, aligned = common.align_track_path(
-            track, disc, '%t. %n')
+            track, disc, '%t. %n', '/out')
         self.assertTrue(aligned)
         self.assertEqual(
             path,
             '/out/Artist - Album/01. Speed of Life.flac')
 
-    def testHierarchicalTemplateOutsideDiscDirUsesBasename(self):
+    def testHierarchicalTemplateOutsideDiscDirPreservesDirectories(self):
         disc = '/out/Artist - Album/Artist - Album'
         track = '/out/subdir/01. Title.flac'
         path, aligned = common.align_track_path(
-            track, disc, 'subdir/%t. %n')
+            track, disc, 'subdir/%t. %n', '/out')
         self.assertTrue(aligned)
         self.assertEqual(
             path,
-            '/out/Artist - Album/01. Title.flac')
+            '/out/Artist - Album/subdir/01. Title.flac')
 
 
 class TruncateFilenameTestCase(tcommon.TestCase):

@@ -21,6 +21,7 @@
 """Common functionality and class for all programs using whipper."""
 
 import musicbrainzngs
+import copy
 import re
 import os
 import shutil
@@ -700,7 +701,9 @@ class Program:
                 if not track.filename:
                     # false positive htoa
                     continue
-                if track.skipped:
+                if (track.skipped or
+                        (self.result.complete is not None and
+                         not track.isComplete())):
                     continue
                 if track.number == 0:
                     length = (self.result.table.getTrackStart(1) /
@@ -716,12 +719,27 @@ class Program:
                 f.write(u)
 
     def writeCue(self, discName):
-        assert self.result.table.canCue()
         cuePath = common.truncate_filename(discName + '.cue')
         logger.debug('write .cue file to %s', cuePath)
         handle = open(cuePath, 'w')
         # FIXME: do we always want utf-8 ?
-        handle.write(self.result.table.cue(cuePath))
+        table = self.result.table
+        if self.result.complete is False:
+            # Never mutate the source TOC or discard recovery files.
+            table = copy.deepcopy(table)
+            completed = [t for t in self.result.tracks
+                         if t.isComplete() and t.filename]
+            paths = {t.filename for t in completed}
+            for track in table.tracks:
+                for index in track.indexes.values():
+                    if index.path not in paths:
+                        index.path = None
+            numbers = {t.number for t in completed}
+            text = table.cue(cuePath, track_numbers=numbers)
+        else:
+            assert table.canCue()
+            text = table.cue(cuePath)
+        handle.write(text)
         handle.close()
 
         self.cuePath = cuePath
@@ -729,9 +747,13 @@ class Program:
         return cuePath
 
     def writeLog(self, discName, txt_logger):
-        logPath = common.truncate_filename(discName + '.log')
+        suffix = '.partial.log' if self.result.complete is False else '.log'
+        logPath = common.truncate_filename(discName + suffix)
         handle = open(logPath, 'w')
         log = txt_logger.log(self.result)
+        if self.result.complete is False:
+            # Also distinguish plugin logs from finished-album logs (#704).
+            log = '# INCOMPLETE RIP - recovery diagnostics only\n' + log
         handle.write(log)
         handle.close()
 

@@ -529,7 +529,7 @@ class Table:
         logger.debug('MusicBrainz values: %r', result)
         return result
 
-    def cue(self, cuePath='', program='whipper'):
+    def cue(self, cuePath='', program='whipper', track_numbers=None):
         """
         Dump our internal representation to a .cue file content.
 
@@ -538,6 +538,9 @@ class Table:
         :type cuePath: unicode
         :param program: name of the program (ripping software)
         :type program: str
+        :param track_numbers: completed disc track numbers for a partial cue;
+                              None retains full-disc serialization
+        :type track_numbers: set(int) or None
         :rtype: str
         """
         logger.debug('generating .cue for cuePath %r', cuePath)
@@ -584,6 +587,24 @@ class Table:
         # - the following FILE statements come after the last INDEX that
         #   use that FILE; so before a next TRACK, PREGAP silence, ...
 
+        if track_numbers is not None:
+            lines.append('REM INCOMPLETE_RIP')
+            # Disc offsets describe unavailable material without claiming a
+            # playable track or synthesizing silence for an unread pregap.
+            for track in self.tracks:
+                lines.append('REM ORIGINAL_TRACK %02d START %d LENGTH %d '
+                             'PREGAP %d' % (
+                                 track.number,
+                                 self.getTrackStart(track.number),
+                                 self.getTrackLength(track.number),
+                                 track.getPregap()))
+            selected = [t for t in self.tracks
+                        if t.audio and t.number in track_numbers]
+            sources = [idx for t in selected
+                       for _, idx in sorted(t.indexes.items()) if idx.path]
+            if not sources:
+                return '\n'.join(lines) + '\n'
+
         # add the first FILE line; EAC always puts the first FILE
         # statement before TRACK 01 and any possible PRE-GAP
         firstTrack = self.tracks[0]
@@ -591,6 +612,10 @@ class Table:
         indexOne = firstTrack.getIndex(1)
         counter = index.counter
         track = firstTrack
+
+        if track_numbers is not None:
+            index = sources[0]
+            counter = index.counter
 
         while not index.path:
             t, i = self.getNextTrackIndex(track.number, index.number)
@@ -607,6 +632,8 @@ class Table:
             # FIXME: skip data tracks for now
             if not track.audio:
                 continue
+            if track_numbers is not None and track.number not in track_numbers:
+                continue
 
             indexes = sorted(track.indexes.keys())
 
@@ -615,6 +642,8 @@ class Table:
             for number in indexes:
                 index = track.indexes[number]
                 logger.debug('index %r, %r', number, index)
+                if track_numbers is not None and not index.path:
+                    continue
 
                 # any time the source counter changes to a higher value,
                 # write a FILE statement
@@ -647,7 +676,13 @@ class Table:
                         lines.append("    FLAGS PRE")
 
                     # handle TRACK 01 INDEX 00 specially
-                    if 0 in indexes:
+                    if (track_numbers is not None and 0 in indexes and
+                            not track.indexes[0].path):
+                        lines.append('    REM UNAVAILABLE_PREGAP %s' %
+                                     common.framesToMSF(track.getPregap()))
+
+                    if (0 in indexes and
+                            (track_numbers is None or track.indexes[0].path)):
                         index00 = track.indexes[0]
                         if i == 0:
                             # if we have a silent pre-gap, output it

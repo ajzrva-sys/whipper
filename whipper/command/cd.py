@@ -423,6 +423,21 @@ Log files will log the path to tracks relative to this directory.
         if self.options.cover_art == "file":
             self.coverArtPath = None  # NOTE: avoid image embedding (hacky)
 
+        self.program.result.complete = False
+        self.skipped_tracks = []
+        # Include unattempted tracks in recovery diagnostics as pending.
+        numbers = [t.number for t in self.itable.tracks]
+        if self.program.getHTOA():
+            numbers.insert(0, 0)
+        for number in numbers:
+            track_result = self.program.result.getTrackResult(number)
+            if track_result is None:
+                track_result = result.TrackResult()
+                track_result.number = number
+                self.program.result.tracks.append(track_result)
+            track_result.status = 'pending'
+            track_result.skipped = False
+
         # FIXME: turn this into a method
         def _ripIfNotRipped(number):
             logger.debug('ripIfNotRipped for track %d', number)
@@ -442,6 +457,7 @@ Log files will log the path to tracks relative to this directory.
                                         track_number=number) + '.flac'
             logger.debug('ripIfNotRipped: path %r', path)
             trackResult.number = number
+            trackResult.status = 'reading'
 
             assert isinstance(path, str), "%r is not str" % path
             trackResult.filename = path
@@ -483,6 +499,8 @@ Log files will log the path to tracks relative to this directory.
 
                     logger.debug('ripIfNotRipped: track %d, try %d', number,
                                  tries)
+                    # CRCs from an earlier attempt cannot qualify this read.
+                    trackResult.testcrc = trackResult.copycrc = None
                     tag_list = self.program.getTagList(number, self.mbdiscid)
                     # An HTOA can't have an ISRC value
                     if (number > 0 and
@@ -500,9 +518,20 @@ Log files will log the path to tracks relative to this directory.
                                                   len(self.itable.tracks),
                                                   extra),
                                               coverArtPath=self.coverArtPath)
+                        if not os.path.isfile(trackResult.filename):
+                            raise RuntimeError(
+                                'no audio output for track %d' % number)
+                        if not trackResult.hasMatchingCRCs():
+                            raise RuntimeError(
+                                'missing or mismatched CRCs for track %d'
+                                % number)
                         break
+                    except KeyboardInterrupt:
+                        trackResult.status = 'interrupted'
+                        raise
                     # FIXME: catching too general exception (Exception)
                     except Exception as e:
+                        trackResult.status = 'failed'
                         logger.debug('got exception %r on try %d', e, tries)
                         tries += 1
 
@@ -529,7 +558,7 @@ Log files will log the path to tracks relative to this directory.
                     print("Skipping CRC comparison for track %d "
                           "due to rip failure" % number)
                 else:
-                    if trackResult.testcrc == trackResult.copycrc:
+                    if trackResult.hasMatchingCRCs():
                         logger.info('CRCs match for track %d', number)
                     else:
                         raise RuntimeError(
@@ -538,6 +567,14 @@ Log files will log the path to tracks relative to this directory.
 
                     print('Peak level: %.6f' % (trackResult.peak / 32768.0))
                     print('Rip quality: {:.2%}'.format(trackResult.quality))
+
+            if trackResult.skipped:
+                return
+            if not trackResult.hasMatchingCRCs():
+                trackResult.status = 'failed'
+                raise RuntimeError('missing or mismatched CRCs for track %d'
+                                   % number)
+            trackResult.status = 'completed'
 
             # overlay this rip onto the Table
             if number == 0:
@@ -567,15 +604,14 @@ Log files will log the path to tracks relative to this directory.
             """Write cue/m3u/log for whatever was ripped before an abort."""
             logger.warning(
                 'rip aborted; writing results for successfully ripped tracks')
-            try:
-                self.program.writeCue(discName)
-                self.program.write_m3u(discName)
-                if len(self.skipped_tracks) > 0:
-                    self.program.skipped_tracks = self.skipped_tracks
-                accurip.print_report(self.program.result)
-                self.program.writeLog(discName, self.logger)
-            except Exception as e:  # noqa: BLE001 - best-effort cleanup
-                logger.error('failed to write partial rip results: %s', e)
+            # One failed diagnostic writer must not suppress the others.
+            for writer in (self.program.writeCue, self.program.write_m3u,
+                           lambda name: self.program.writeLog(name,
+                                                              self.logger)):
+                try:
+                    writer(discName)
+                except Exception as e:
+                    logger.error('failed to write partial rip results: %s', e)
 
         # check for hidden track one audio
         htoa = self.program.getHTOA()
@@ -593,9 +629,16 @@ Log files will log the path to tracks relative to this directory.
                                    i + 1)
                     # FIXME: make it work for now
                     track.indexes[1].relative = 0
+                    track.indexes[1].path = None
+                    track_result = self.program.result.getTrackResult(i + 1)
+                    track_result.status = 'skipped'
+                    track_result.skipped = True
                     continue
                 _ripIfNotRipped(i + 1)
-        except Exception:
+        except (Exception, KeyboardInterrupt):
+            for track_result in self.program.result.tracks:
+                if track_result.status == 'reading':
+                    track_result.status = 'interrupted'
             # Issue #560: do not throw away tracks that already ripped
             _writePartialResults(discName)
             raise
@@ -609,31 +652,24 @@ Log files will log the path to tracks relative to this directory.
             logger.debug('deleting cover art file at: %r', self.coverArtPath)
             os.remove(self.coverArtPath)
 
-        logger.debug('writing cue file for %r', discName)
+        self.program.result.complete = all(
+            t.isComplete() or t.status == 'skipped'
+            for t in self.program.result.tracks)
+        if not self.program.result.complete:
+            _writePartialResults(discName)
+            logger.warning('%d tracks failed in this rip attempt',
+                           len(self.skipped_tracks))
+            return 5
+
         self.program.writeCue(discName)
-
-        logger.debug('writing m3u file for %r', discName)
         self.program.write_m3u(discName)
-
-        if len(self.skipped_tracks) > 0:
-            logger.warning("the generated cue sheet references %d track(s) "
-                           "which failed to rip so the associated file(s) "
-                           "won't be available", len(self.skipped_tracks))
-            self.program.skipped_tracks = self.skipped_tracks
-
         try:
             self.program.verifyImage(self.runner, self.itable)
         except accurip.EntryNotFound:
             logger.warning('AccurateRip entry not found')
 
         accurip.print_report(self.program.result)
-
         self.program.writeLog(discName, self.logger)
-
-        if len(self.skipped_tracks) > 0:
-            logger.warning('%d tracks have been skipped from this rip attempt',
-                           len(self.skipped_tracks))
-            return 5
 
 
 class CD(BaseCommand):

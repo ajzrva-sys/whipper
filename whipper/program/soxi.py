@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 SOXI = 'soxi'
 
 
+class AudioLengthError(OSError):
+    """The source could not be read by soxi."""
+
+
 class AudioLengthTask(ctask.PopenTask):
     """
     Calculate the length of a track in audio samples.
@@ -44,10 +48,13 @@ class AudioLengthTask(ctask.PopenTask):
         self._output.append(bytes_stdout)
 
     def readbyteserr(self, bytes_stderr):
-        self._error.append(bytes_stderr)
+        self._error.append(
+            bytes_stderr.decode('utf-8', errors='replace')
+            if isinstance(bytes_stderr, bytes) else bytes_stderr)
 
     def failed(self):
-        self.setException(Exception("soxi failed: %s" % "".join(self._error)))
+        self.setException(
+            AudioLengthError("soxi failed: %s" % "".join(self._error)))
 
     def done(self):
         if self._error:

@@ -89,7 +89,8 @@ class CdrdaoDoneTestCase(unittest.TestCase):
         task.tocfile = '/nonexistent/no.cdrdao.toc'
         task.toc_path = None
         task.device = '/dev/sr0'
-        task._buffer = 'ERROR: init failed\n'
+        task._buffer = ''
+        task._stderr_tail = 'ERROR: init failed\n'
         task._popen = mock.Mock(returncode=1)
         task._parser = cdrdao.ProgressParser()
         exceptions = []

@@ -31,6 +31,7 @@ from packaging.version import Version
 
 from whipper.common import accurip, checksum, common, mbngs, path
 from whipper.program import cdrdao, cdparanoia
+from whipper.program.soxi import AudioLengthError
 from whipper.result import result
 from whipper.image import image
 from whipper.extern import freedb
@@ -660,10 +661,14 @@ class Program:
                                                 for t in self.skipped_tracks])
         else:
             verifytask = image.ImageVerifyTask(cueImage)
-        runner.run(verifytask)
-        if verifytask.exception:
+        try:
+            runner.run(verifytask)
+        except task.TaskException as e:
+            if not isinstance(e.exception, AudioLengthError):
+                raise
+        lengths_valid = not verifytask.exception
+        if not lengths_valid:
             logger.error(verifytask.exceptionMessage)
-            return False
 
         responses = accurip.get_db_entry(table.accuraterip_path())
         logger.info('%d AccurateRip response(s) found', len(responses))
@@ -679,14 +684,12 @@ class Program:
                 logger.warning(
                     'skipping AccurateRip checksum for track %s; no FILE path',
                     getattr(t, 'number', '?'))
-                continue
             checksum_paths.append(
-                os.path.join(os.path.dirname(self.cuePath), rel))
+                os.path.join(os.path.dirname(self.cuePath), rel)
+                if rel else None)
         checksums = accurip.calculate_checksums(checksum_paths)
-        if not (checksums and any(checksums['v1']) and any(checksums['v2'])):
-            return False
-
-        return accurip.verify_result(self.result, responses, checksums)
+        verified = accurip.verify_result(self.result, responses, checksums)
+        return lengths_valid and verified
 
     def write_m3u(self, discname):
         m3uPath = common.truncate_filename(discname + '.m3u')

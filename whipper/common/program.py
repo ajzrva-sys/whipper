@@ -79,7 +79,9 @@ def fetch_front_image(release_id, size=500):
     images = (listing or {}).get('images') or []
     if not images:
         return None
-    front = next((img for img in images if img.get('front')), images[0])
+    front = next((img for img in images if img.get('front')), None)
+    if front is None:
+        return None
     thumbs = front.get('thumbnails') or {}
     url = (
         thumbs.get(str(size))

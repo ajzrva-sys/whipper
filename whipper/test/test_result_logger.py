@@ -230,10 +230,10 @@ class LoggerTestCase(unittest.TestCase):
         self.assertIn("00:01:15 - 00:01:16", log)
         self.assertIn("01:00:00 - 01:00:10", log)
         # matching CRCs but severe cdparanoia errors reported
-        self.assertIn("Copy OK (WARNING: uncorrected/skipped sectors", log)
+        self.assertIn("Copy OK (cdparanoia reported severe recoverable", log)
         self.assertIn("Health status: There were errors", log)
         self.assertIn("cdparanoia health:", log)
-        self.assertIn("definitely lossy", log)
+        self.assertNotIn("definitely lossy", log)
 
     def testLoggerCorrectionsOnlyHealth(self):
         """Corrections without severe events keep 'No errors occurred'."""
@@ -294,12 +294,12 @@ class LoggerTestCase(unittest.TestCase):
             "drift": 2,
             "unknown_event": 4,
         })
-        # skip + scratch + transport + scsi
-        self.assertEqual(severe, 2 + 1 + 1 + 3)
+        # skip + unsupported scratch + max(transport, scsi)
+        self.assertEqual(severe, 2 + 1 + max(1, 3))
         # jitter + drift + unknown
         self.assertEqual(corrections, 5 + 2 + 4)
         # only definitely-lossy names (alphabetical)
-        self.assertEqual(lossy, ["scratch", "scsi_read error", "skip"])
+        self.assertEqual(lossy, ["skip"])
 
     def testClassifyTransportErrorNotInLossyNames(self):
         """#294: transport error may be recovered ('e' in progress bar)."""
@@ -388,3 +388,88 @@ class LoggerTestCase(unittest.TestCase):
         self.assertIn("Status: Copy OK\n", log)
         self.assertIn("Health status: No errors occurred", log)
         self.assertIn("cdparanoia health: clean", log)
+
+    def testOutputFixturesThroughFinalHealth(self):
+        from whipper.program.cdparanoia import ProgressParser
+        fixtures = [
+            ('##: 9 [overlap] @ 117600', 'corrections only', False, False),
+            ('##: 2 [jitter] @ 235200', 'corrections only', False, True),
+            ('scsi_read error: sector=200 length=1 retry=0\n'
+             '##: 0 [read] @ 236376',
+             'severe recoverable errors', True, False),
+            ('scsi_read error: sector=200 length=1 retry=0\n'
+             'scsi_read error: sector=200 length=1 retry=1\n'
+             '##: 12 [transport error] @ 235200',
+             'severe recoverable errors', True, True),
+            ('##: 6 [skip] @ 235200',
+             'definitely lossy (uncorrected/skipped): skip', True, True),
+            ('##: 9 [overlap] @ 117600\n'
+             '##: 2 [jitter] @ 235200\n'
+             'scsi_read error: sector=200 length=1 retry=0\n'
+             '##: 12 [transport error] @ 235200\n'
+             '##: 6 [skip] @ 352800',
+             'definitely lossy (uncorrected/skipped): skip', True, True),
+        ]
+        logger = WhipperLogger()
+        for output, health, severe, positioned in fixtures:
+            for matching in (True, False):
+                with self.subTest(output=output, matching=matching):
+                    parser = ProgressParser(150, 1000)
+                    for line in output.splitlines():
+                        parser.parse(line)
+                    rip = RipResult()
+                    rip.table = MockImageTable()
+                    track = TrackResult()
+                    track.number = 1
+                    track.filename = './01.flac'
+                    track.peak = 1000
+                    track.testduration = track.copyduration = 1
+                    track.testcrc = 123
+                    track.copycrc = 123 if matching else 456
+                    track.cdparanoiaEvents = parser.getEventCounts()
+                    track.cdparanoiaSevereErrors = parser.severeErrors
+                    track.suspiciousPositions = parser.getSuspiciousPositions()
+                    track.AR = {
+                        v: {'DBCRC': None, 'CRC': None, 'DBConfidence': None}
+                        for v in ('v1', 'v2')}
+                    rip.tracks.append(track)
+                    parsed = YAML(typ='rt', pure=True).load(
+                        logger.log(rip, epoch=0))
+                    report = parsed['Conclusive status report']
+                    self.assertTrue(report['cdparanoia health'].startswith(
+                        health))
+                    expected = ('There were errors' if severe or not matching
+                                else 'No errors occurred')
+                    self.assertEqual(report['Health status'], expected)
+                    logged = parsed['Tracks'][1]
+                    self.assertEqual(dict(logged['cdparanoia events']),
+                                     parser.getEventCounts())
+                    self.assertEqual('Suspicious positions' in logged,
+                                     positioned)
+                    if not matching:
+                        self.assertEqual(logged['Status'],
+                                         'Error, CRC mismatch')
+                    elif 'skip' in parser.getEventCounts():
+                        self.assertIn('WARNING: uncorrected/skipped sectors: '
+                                      'skip', logged['Status'])
+                    elif severe:
+                        self.assertIn('recovery unverified', logged['Status'])
+                        self.assertNotIn('uncorrected/skipped',
+                                         logged['Status'])
+                    else:
+                        self.assertEqual(logged['Status'], 'Copy OK')
+
+    def testLoggerUsesPerPassSevereCount(self):
+        track = TrackResult()
+        track.filename = './01.flac'
+        track.peak = 1000
+        track.testcrc = track.copycrc = 123
+        track.cdparanoiaEvents = {
+            'scsi_read error': 1, 'transport error': 1, 'skip': 1}
+        track.cdparanoiaSevereErrors = 3
+        logger = WhipperLogger()
+        logger._reset_counters()
+        logged, _, _ = logger.trackLog(track)
+        self.assertEqual(logger._cdparanoiaSevereCount, 3)
+        self.assertIn('WARNING: uncorrected/skipped sectors: skip',
+                      logged['Status'])

@@ -525,7 +525,7 @@ Log files will log the path to tracks relative to this directory.
                             '%s=%d' % (k, nonzero[k])
                             for k in sorted(nonzero))
                         logger.warning(
-                            'cdparanoia reported non-fatal errors on '
+                            'cdparanoia reported read diagnostics on '
                             'track %d: %s', number, summary)
                     if trackResult.suspiciousPositions:
                         pretty = ', '.join(

@@ -47,8 +47,8 @@ class WhipperLogger(result.Logger):
         * ``corrections only`` — re-reads/patches; usually not lossy
         * ``severe recoverable errors`` — transport/cache errors that
           paranoia may have corrected (progress bar 'e')
-        * ``definitely lossy (uncorrected/skipped): …`` — skip/scratch/
-          scsi_read error (progress bar 'V'); CRC match does not prove
+        * ``definitely lossy (uncorrected/skipped): …`` — skip
+          (progress bar 'V'); CRC match does not prove
           the audio is correct
         """
         if lossy_names:
@@ -56,7 +56,8 @@ class WhipperLogger(result.Logger):
                 ', '.join(lossy_names),)
         if severe:
             return ("severe recoverable errors "
-                    "(transport/cache; verify against AccurateRip)")
+                    "(read/cache; recovery unverified; "
+                    "verify against AccurateRip)")
         if corrections:
             return "corrections only"
         return "clean"
@@ -189,11 +190,11 @@ class WhipperLogger(result.Logger):
 
         # Health status (issue #294), using libcdio-paranoia semantics:
         # - CRC mismatch always means errors.
-        # - Definitely-lossy events (skip / scratch / scsi_read error;
+        # - Definitely-lossy events (skip;
         #   progress bar 'V') can be wrong even when test and copy CRCs
         #   match, because both passes may agree on the same bad fill.
         #   Treat as errors.
-        # - Severe recoverable events (transport error / cache error;
+        # - Potentially recoverable events (SCSI / transport / cache;
         #   progress bar 'e') still force "There were errors" so archival
         #   users notice; AccurateRip can confirm the result.
         # - Corrections-only rips usually recover; keep "No errors occurred"
@@ -283,6 +284,11 @@ class WhipperLogger(result.Logger):
         # Non-routine cdparanoia callbacks (issue #88 / #294 / #492)
         events = trackResult.cdparanoiaEvents or {}
         severe, corrections, lossy_names = classify_cdparanoia_events(events)
+        # New results preserve per-pass, sector-aware accounting. Older saved
+        # results only have raw counts, so retain the classifier lower bound.
+        recorded_severe = getattr(trackResult, 'cdparanoiaSevereErrors', None)
+        if recorded_severe is not None:
+            severe = recorded_severe
         nonzero = OrderedDict()
         for name in sorted(events):
             if events[name]:
@@ -348,7 +354,7 @@ class WhipperLogger(result.Logger):
             elif severe:
                 track["Status"] = (
                     "Copy OK (cdparanoia reported severe recoverable "
-                    "errors)")
+                    "errors; recovery unverified)")
             else:
                 track["Status"] = "Copy OK"
         else:

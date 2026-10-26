@@ -65,13 +65,15 @@ class ChecksumException(Exception):
 _PROGRESS_RE = re.compile(r"""
     ^\#\#: (?P<code>.+)\s         # function code
     \[(?P<function>.*)\]\s@\s     # [function name] @
-    (?P<offset>-?\d+)             # offset in words (2-byte one channel value)
+    (?P<offset>-?\d+)             # callback argument; usually absolute words
 """, re.VERBOSE)
 
 _ERROR_RE = re.compile("^scsi_read error:")
+_SCSI_SECTOR_RE = re.compile(r"^scsi_read error: sector=(-?\d+)(?:\s|$)")
 
-# from reading cdparanoia source code, it looks like offset is reported in
-# number of single-channel samples, ie. 2 bytes (word) per unit, and absolute
+# Positional callbacks use absolute single-channel samples (2-byte words).
+# OVERLAP instead reports a window size; unsupported callbacks have no
+# established positional contract. See lib/paranoia/{paranoia,overlap}.c.
 
 # cdparanoia --stderr-progress function names, classified for reporting.
 #
@@ -127,13 +129,13 @@ CORRECTION_FUNCTIONS = frozenset({
 SEVERE_RECOVERABLE_FUNCTIONS = frozenset({
     'transport error',  # PARANOIA_CB_READERR
     'cache error',      # PARANOIA_CB_CACHEERR (drive/cache model)
+    'scratch',          # unsupported upstream; no proof of abandoned audio
 })
 
 # Definitely-lossy events: retries exhausted / damaged sectors given up on.
 # Progress bar 'V' (uncorrected error/skip). Issue #294.
 DEFINITELY_LOSSY_FUNCTIONS = frozenset({
     'skip',             # PARANOIA_CB_SKIP — data abandoned
-    'scratch',          # PARANOIA_CB_SCRATCH — damaged sector
 })
 
 # All events that force Health status "There were errors" when present
@@ -142,8 +144,15 @@ SEVERE_FUNCTIONS = DEFINITELY_LOSSY_FUNCTIONS | SEVERE_RECOVERABLE_FUNCTIONS
 
 # Raw SCSI-layer failures printed outside the callback protocol.
 SCSI_ERROR_NAME = 'scsi_read error'
-# scsi_read errors are treated as definitely lossy unless proven otherwise.
-LOSSY_EVENT_NAMES = DEFINITELY_LOSSY_FUNCTIONS | {SCSI_ERROR_NAME}
+# Raw failures may succeed on retry; only SKIP establishes abandoned audio.
+LOSSY_EVENT_NAMES = DEFINITELY_LOSSY_FUNCTIONS
+
+# Explicit allowlist from upstream call sites. OVERLAP supplies dynoverlap,
+# while drift supplies the root vector end (a position, not a drift amount).
+POSITIONAL_FUNCTIONS = frozenset({
+    'jitter', 'correction', 'dropped', 'duped', 'drift',
+    'transport error', 'cache error', 'skip',
+})
 
 # Backwards-compatible aliases
 _ROUTINE_FUNCTIONS = ROUTINE_FUNCTIONS
@@ -158,24 +167,35 @@ def classify_cdparanoia_events(events):
     :param events: mapping of callback name -> count
     :type  events: dict or None
     :returns: ``(severe, corrections, lossy_names)``
-      - ``severe``: total count of severe events (lossy + recoverable)
+      - ``severe``: lower bound from counts alone
+        (lossy + potentially recoverable)
       - ``corrections``: total count of re-read/patch events
       - ``lossy_names``: sorted names of definitely-lossy events present
-        (skip, scratch, scsi_read error) — these can make a rip wrong
+        (skip) — these can make a rip wrong
         even when CRCs match
     :rtype: tuple(int, int, list(str))
     """
-    severe = 0
+    # These channels can describe the same failed read, without a shared ID.
+    # Keep their raw counts, but use the larger count as a conservative lower
+    # bound rather than summing overlapping evidence. Repeated raw retries
+    # Abort accounting uses sector-aware evidence in ProgressParser instead.
+    # Aggregated counts alone cannot establish which reports overlap.
+    events = events or {}
+    severe = max(events.get(SCSI_ERROR_NAME, 0),
+                 events.get('transport error', 0))
     corrections = 0
     lossy_names = set()
     for name, count in (events or {}).items():
         if not count:
             continue
-        if name in DEFINITELY_LOSSY_FUNCTIONS or name == SCSI_ERROR_NAME:
+        if name in DEFINITELY_LOSSY_FUNCTIONS:
             severe += count
             lossy_names.add(name)
         elif name in SEVERE_RECOVERABLE_FUNCTIONS:
-            severe += count
+            if name != 'transport error':
+                severe += count
+        elif name == SCSI_ERROR_NAME:
+            pass  # already accounted for with transport errors above
         elif name in CORRECTION_FUNCTIONS:
             corrections += count
         elif name not in ROUTINE_FUNCTIONS:
@@ -193,7 +213,7 @@ class ProgressParser:
     wrote = 0  # last [wrote] frame
     errors = 0  # count of number of scsi errors
     corrections = 0  # count of correction-type callbacks
-    severeErrors = 0  # count of severe callbacks + scsi errors
+    severeErrors = 0  # severe diagnostics, overlapping channels deduplicated
     _nframes = None  # number of frames read on each [read]
     _firstFrames = None  # number of frames read on first [read]
     reads = 0  # total number of reads
@@ -216,6 +236,9 @@ class ProgressParser:
         self._reads = {}  # read count for each sector
         self.eventCounts = {}
         self._suspiciousFrames = []
+        self._rawFailures = {}
+        self._transportFailures = {}
+        self._unlocatedFailures = 0
 
     def parse(self, line):
         """Parse a line."""
@@ -233,11 +256,17 @@ class ProgressParser:
         m = _ERROR_RE.search(line)
         if m:
             self.errors += 1
-            self.severeErrors += 1
             self.eventCounts[SCSI_ERROR_NAME] = (
                 self.eventCounts.get(SCSI_ERROR_NAME, 0) + 1)
-            if self.read >= self.start:
-                self._suspiciousFrames.append(int(self.read))
+            sector = _SCSI_SECTOR_RE.search(line)
+            if sector:
+                key = int(sector.group(1))
+                self._rawFailures[key] = self._rawFailures.get(key, 0) + 1
+            else:
+                self._unlocatedFailures += 1
+            self._update_severe_errors()
+            # A raw message has no callback position; the last read pointer
+            # may be unrelated (messages can be buffered). Do not invent one.
 
     def _record_event(self, function, wordOffset):
         """Count non-routine cdparanoia callbacks and remember positions."""
@@ -247,7 +276,11 @@ class ProgressParser:
         self.eventCounts[function] = self.eventCounts.get(function, 0) + 1
 
         if function in SEVERE_FUNCTIONS:
-            self.severeErrors += 1
+            if function == 'transport error':
+                sector = wordOffset // common.WORDS_PER_FRAME
+                self._transportFailures[sector] = (
+                    self._transportFailures.get(sector, 0) + 1)
+            self._update_severe_errors()
         elif function in CORRECTION_FUNCTIONS:
             self.corrections += 1
         else:
@@ -256,11 +289,24 @@ class ProgressParser:
             self.corrections += 1
             return
 
-        if wordOffset < 0:
+        if function not in POSITIONAL_FUNCTIONS or wordOffset < 0:
             return
         frame = wordOffset // common.WORDS_PER_FRAME
         if self.start <= frame <= self.stop:
             self._suspiciousFrames.append(frame)
+
+    def _update_severe_errors(self):
+        # Pair only matching sectors, independent of stderr buffering/order.
+        # Retain repeated retries, unmatched reports and non-transport severe
+        # callbacks. A different sector must never suppress an abort.
+        sectors = self._rawFailures.keys() | self._transportFailures.keys()
+        failures = self._unlocatedFailures + sum(
+            max(self._rawFailures.get(sector, 0),
+                self._transportFailures.get(sector, 0))
+            for sector in sectors)
+        self.severeErrors = failures + sum(
+            self.eventCounts.get(name, 0) for name in SEVERE_FUNCTIONS
+            if name != 'transport error')
 
     def getEventCounts(self):
         """Return a dict of non-routine callback name -> count."""
@@ -603,13 +649,13 @@ class ReadTrackTask(task.Task):
         """Report non-fatal cdparanoia errors; do not abort on them alone."""
         if self.severeErrors:
             logger.warning(
-                '%s: cdparanoia reported %d severe error(s) (skip/transport/'
-                'scsi); check the rip log for suspicious positions',
+                '%s: cdparanoia reported %d severe read diagnostic(s); '
+                'recovery is not established by these counts; see rip log',
                 self.description, self.severeErrors)
         if self.corrections:
             logger.warning(
                 '%s: cdparanoia reported %d read correction(s); '
-                'see suspicious positions in the rip log',
+                'see event counts and available positions in the rip log',
                 self.description, self.corrections)
         if self.suspiciousPositions:
             pretty = ', '.join(

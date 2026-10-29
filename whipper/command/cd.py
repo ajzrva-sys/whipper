@@ -559,12 +559,9 @@ Log files will log the path to tracks relative to this directory.
                 logger.info(
                     'skipping Hidden Track One Audio (frames %d to %d) '
                     'because --skip-htoa is set', start, stop)
-                try:
-                    self.itable.setFile(
-                        1, 0, None,
-                        self.itable.getTrackStart(1), 0)
-                except Exception as e:
-                    logger.debug('could not clear HTOA index: %r', e)
+                self.itable.setFile(
+                    1, 0, None,
+                    self.itable.getTrackStart(1), 0)
             else:
                 logger.info(
                     'found Hidden Track One Audio from frame %d to %d',
